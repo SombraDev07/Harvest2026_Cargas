@@ -21,7 +21,7 @@ def extract_rom_parts(rom_str):
     digits = re.sub(r'\D', '', str(rom_str))
     return int(digits) if digits else 0, ""
 
-def validate_batch_context(db: Session, loads: list):
+def validate_batch_context(loads: list):
     """
     Consolidated batch rules: Rule 1 (Duplicates) and Rule 2 (Statistical Romaneios).
     Groups them by visit context to avoid thousands of DB queries.
@@ -168,7 +168,7 @@ def run_batch_validation(db: Session, district: str = None, limit: int = 1000000
         
         for vcode, group in visits.items():
             if vcode != "N/A":
-                validate_batch_context(db, group)
+                validate_batch_context(group)
         
         # 2. Individual Rules
         for load in loads:
@@ -177,8 +177,7 @@ def run_batch_validation(db: Session, district: str = None, limit: int = 1000000
             else: results["error"] += 1
         
         db.commit()
-        if i % 5000 == 0:
-            print(f"Validated {min(i + chunk_size, total)}/{total}...")
+        print(f"--- [PROGRESS] Validated {min(i + chunk_size, total)}/{total} loads... ---")
             
     print(f"--- BATCH DONE: {results['success']} OK, {results['error']} Errors ---")
     return results

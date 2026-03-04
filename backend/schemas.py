@@ -27,6 +27,12 @@ class LoadResponse(LoadBase):
     class Config:
         from_attributes = True
 
+class DistrictStats(BaseModel):
+    name: str
+    total_loads: int
+    error_loads: int
+    error_rate: float
+
 class AnalyticsSummary(BaseModel):
     total_loads: int
     validated_loads: int
@@ -34,3 +40,4 @@ class AnalyticsSummary(BaseModel):
     error_loads: int
     total_weight: float
     rule_breakdown: dict
+    district_performance: List[DistrictStats]

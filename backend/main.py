@@ -61,21 +61,47 @@ def get_analytics(db: Session = Depends(get_db)):
     }
     
     total_weight = db.query(models.Load).with_entities(models.func.sum(models.Load.weight_net)).scalar() or 0.0
+
+    # District Performance Analysis
+    # We group by district and count totals and errors
+    from sqlalchemy import case, func
+    district_performance_raw = db.query(
+        models.Load.district,
+        func.count(models.Load.id).label("total"),
+        func.sum(case((models.Load.status == "error", 1), else_=0)).label("errors")
+    ).group_by(models.Load.district).all()
+
+    district_performance = []
+    for row in district_performance_raw:
+        total_loads = row.total or 0
+        error_loads = int(row.errors or 0)
+        error_rate = (error_loads / total_loads * 100) if total_loads > 0 else 0
+        
+        district_performance.append({
+            "name": row.district or "Desconhecido",
+            "total_loads": total_loads,
+            "error_loads": error_loads,
+            "error_rate": round(error_rate, 1)
+        })
     
+    # Sort by error count descending
+    district_performance.sort(key=lambda x: x["error_loads"], reverse=True)
+
     return {
         "total_loads": total,
         "validated_loads": validated,
         "pending_loads": pending,
         "error_loads": errors,
         "total_weight": total_weight,
-        "rule_breakdown": rule_counts
+        "rule_breakdown": rule_counts,
+        "district_performance": district_performance
     }
 
 @app.get("/loads/export")
 def export_rule_csv(rule_filter: str, db: Session = Depends(get_db)):
     def generate():
         # Header
-        yield "ID,VISITA,CIDADE,CNPJ_FILIAL,DOC/ROMANEIO,PLACA,PRODUTOR,PESO_LIQ,STATUS,ERRO\n"
+        yield "ID,VISITA,DISTRITO,CNPJ_FILIAL,DOC/ROMANEIO,PLACA,PRODUTOR,PESO_LIQ,STATUS,ERRO\n"
         
         # Stream from DB
         query = db.query(models.Load).filter(models.Load.error_message.like(f"%{rule_filter}%"))
@@ -84,7 +110,7 @@ def export_rule_csv(rule_filter: str, db: Session = Depends(get_db)):
             row = [
                 str(load.load_identifier),
                 str(load.visit_code),
-                str(load.city).replace(",", " "),
+                str(load.district).replace(",", " "),
                 str(load.cnpj_filial).replace(",", " "),
                 str(load.doc_number),
                 str(load.truck_plate),
@@ -128,8 +154,41 @@ def trigger_validation(background_tasks: BackgroundTasks, db: Session = Depends(
     
     return {"message": "Auditoria de 80.000+ linhas iniciada em segundo plano. Recarregue a página em alguns segundos para ver o resultado limpo."}
 
+@app.get("/analytics/district/{district_name}")
+def get_district_distribution(district_name: str, db: Session = Depends(get_db)):
+    # Error classification patterns
+    rules = [
+        {"name": "Duplicidade", "pattern": "duplicado"},
+        {"name": "Padrão Doc", "pattern": "padrão"},
+        {"name": "Preenchimento", "pattern": "não preenchido"},
+        {"name": "Placa", "pattern": "Placa inválida"},
+        {"name": "Limite Peso", "pattern": "acima do limite"},
+        {"name": "Peso Fictício", "pattern": "peso fictício"},
+        {"name": "Desconto", "pattern": "Desconto excessivo"},
+    ]
+    
+    distribution = []
+    
+    for idx, r in enumerate(rules):
+        count = db.query(models.Load).filter(
+            models.Load.district == district_name,
+            models.Load.status == "error",
+            models.Load.error_message.like(f"%{r['pattern']}%")
+        ).count()
+        
+        if count > 0:
+            distribution.append({
+                "rule": r["name"],
+                "count": count,
+                "x": (idx * 15) + 20, # X position for chart
+                "y": 50 + (idx % 2 * 10), # Slight Y stagger
+                "z": count # Radius/Size
+            })
+            
+    return distribution
+
 @app.post("/validate-all")
-def trigger_validation(district: str = None, db: Session = Depends(get_db)):
+def trigger_validation_old(district: str = None, db: Session = Depends(get_db)):
     results = validation.run_batch_validation(db, district=district)
     return {"message": f"Validation batch completed for {district or 'all districts'}", "results": results}
 
