@@ -1,0 +1,34 @@
+# Node
+node_modules/
+dist/
+.next/
+out/
+build/
+.env*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Databases & Local data
+backend/harvest.db
+backend/database.db
+backend/db_audit.py
+*.sqlite3
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
