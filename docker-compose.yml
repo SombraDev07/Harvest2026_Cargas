@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: harvest_db
+    restart: always
+    environment:
+      POSTGRES_USER: harvest_user
+      POSTGRES_PASSWORD: harvest_password
+      POSTGRES_DB: harvest_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build: ./backend
+    container_name: harvest_backend
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://harvest_user:harvest_password@db:5432/harvest_db
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://YOUR_SERVER_IP:8000
+    container_name: harvest_frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:3000"
+
+volumes:
+  postgres_data:
