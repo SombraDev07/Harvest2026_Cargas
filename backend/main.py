@@ -27,44 +27,130 @@ def read_root():
     return {"message": "Harvest 2026 API is running"}
 
 @app.get("/loads", response_model=List[schemas.LoadResponse])
-def get_loads(skip: int = 0, limit: int = 100, status: str = None, rule_filter: str = None, db: Session = Depends(get_db)):
+def get_loads(
+    skip: int = 0, 
+    limit: int = 100, 
+    status: str = None, 
+    error_type: str = None, # Renamed rule_filter to error_type to match newer frontend
+    district: str = None,
+    recent_only: bool = False,
+    db: Session = Depends(get_db)
+):
     query = db.query(models.Load)
+    
     if status:
         query = query.filter(models.Load.status == status)
-    if rule_filter:
-        # Simple string matching for rule fragments
-        query = query.filter(models.Load.error_message.like(f"%{rule_filter}%"))
+    
+    if error_type:
+        # We check both ErrorLedger link and error_message for robustness
+        query = query.filter(models.Load.error_message.like(f"%{error_type}%"))
         
-    loads = query.offset(skip).limit(limit).all()
+    if district:
+        query = query.filter(models.Load.district == district)
+        
+    if recent_only:
+        from datetime import datetime, timedelta
+        threshold = datetime.now() - timedelta(hours=48)
+        query = query.filter(models.Load.updated_at >= threshold)
+        
+    loads = query.order_by(models.Load.updated_at.desc()).offset(skip).limit(limit).all()
     return loads
+
+@app.get("/registered-loads", response_model=List[schemas.RegisteredLoadResponse])
+def get_registered_loads(db: Session = Depends(get_db)):
+    return db.query(models.RegisteredLoad).order_by(models.RegisteredLoad.timestamp.desc()).all()
+
+@app.post("/registered-loads", response_model=schemas.RegisteredLoadResponse)
+def register_load(load: schemas.RegisteredLoadCreate, db: Session = Depends(get_db)):
+    # Check if already registered
+    existing = db.query(models.RegisteredLoad).filter(models.RegisteredLoad.load_identifier == load.load_identifier).first()
+    if existing:
+        return existing
+    
+    db_load = models.RegisteredLoad(**load.model_dump())
+    db.add(db_load)
+    db.commit()
+    db.refresh(db_load)
+    return db_load
+
+@app.delete("/registered-loads/{load_id}")
+def delete_registered_load(load_id: int, db: Session = Depends(get_db)):
+    db_load = db.query(models.RegisteredLoad).filter(models.RegisteredLoad.id == load_id).first()
+    if not db_load:
+        raise HTTPException(status_code=404, detail="Registered load not found")
+    db.delete(db_load)
+    db.commit()
+    return {"message": "Success"}
+
+@app.get("/analysis/status", response_model=List[schemas.AnalysisStatus])
+def get_analysis_status(db: Session = Depends(get_db)):
+    # Return all active analysis
+    return db.query(models.TableAnalysis).all()
+
+@app.post("/analysis/start", response_model=schemas.AnalysisStatus)
+def start_analysis(data: schemas.AnalysisCreate, db: Session = Depends(get_db)):
+    # Simple logic: override active one for this rule
+    db.query(models.TableAnalysis).filter(models.TableAnalysis.rule_filter == data.rule_filter).delete()
+    
+    db_analysis = models.TableAnalysis(
+        rule_filter=data.rule_filter,
+        user_name=data.user_name,
+        started_at=models.func.now()
+    )
+    db.add(db_analysis)
+    db.commit()
+    db.refresh(db_analysis)
+    return db_analysis
+
+@app.post("/analysis/finish")
+def finish_analysis(rule_filter: str, db: Session = Depends(get_db)):
+    db.query(models.TableAnalysis).filter(models.TableAnalysis.rule_filter == rule_filter).delete()
+    db.commit()
+    return {"message": "Success"}
 
 @app.get("/analytics", response_model=schemas.AnalyticsSummary)
 def get_analytics(db: Session = Depends(get_db)):
     total = db.query(models.Load).count()
+    # Source of Truth for Status
     validated = db.query(models.Load).filter(models.Load.status == "validated").count()
     pending = db.query(models.Load).filter(models.Load.status == "pending").count()
-    errors = db.query(models.Load).filter(models.Load.status == "error").count()
     
-    # Rule based counts
+    # Source of Truth for Errors (Distinct Loads that have at least one error in Ledger)
+    error_loads_count = db.query(models.ErrorLedger.load_identifier).distinct().count()
+    
+    # Count visits sent to operation
+    operation_count = db.query(models.OperationLog).count()
+    
+    # Rule based counts (FROM LEDGER - The absolute Source of Truth)
+    # We query the ledger to see how many entries exist for each category
+    from sqlalchemy import func
+    rule_counts_raw = db.query(models.ErrorLedger.error_type, func.count(models.ErrorLedger.id)).group_by(models.ErrorLedger.error_type).all()
+    
+    # Initialize with 0s to ensure all keys exist for frontend
     rule_counts = {
-        "duplicado": db.query(models.Load).filter(models.Load.error_message.like("%duplicado%")).count(),
-        # Rule 2: Search for any romaneio/padrão anomaly
-        "documento": db.query(models.Load).filter(
-            (models.Load.error_message.like("%romaneio%")) | 
-            (models.Load.error_message.like("%padrão%"))
-        ).count(),
-        "campos": db.query(models.Load).filter(models.Load.error_message.like("%não preenchido%")).count(),
-        "placa": db.query(models.Load).filter(models.Load.error_message.like("%Placa inválida%")).count(),
-        "peso_limite": db.query(models.Load).filter(models.Load.error_message.like("%acima do limite%")).count(),
-        "peso_ficticio": db.query(models.Load).filter(models.Load.error_message.like("%peso fictício%")).count(),
-        "desconto": db.query(models.Load).filter(models.Load.error_message.like("%Desconto excessivo%")).count(),
+        "duplicado": 0,
+        "documento": 0,
+        "campos": 0,
+        "placa": 0,
+        "peso_limite": 0,
+        "peso_ficticio": 0,
+        "desconto": 0,
+        "rateio_peso": 0,
+        "rateio_parceiro": 0,
+        "rateio_tech": 0,
+        "rateio_possivel": 0,
+        "peso_duplicado": 0,
+        "rateio_mesmo_pdr": 0
     }
+    
+    for etype, count in rule_counts_raw:
+        if etype in rule_counts:
+            rule_counts[etype] = count
     
     total_weight = db.query(models.Load).with_entities(models.func.sum(models.Load.weight_net)).scalar() or 0.0
 
     # District Performance Analysis
-    # We group by district and count totals and errors
-    from sqlalchemy import case, func
+    from sqlalchemy import case
     district_performance_raw = db.query(
         models.Load.district,
         func.count(models.Load.id).label("total"),
@@ -84,17 +170,47 @@ def get_analytics(db: Session = Depends(get_db)):
             "error_rate": round(error_rate, 1)
         })
     
-    # Sort by error count descending
     district_performance.sort(key=lambda x: x["error_loads"], reverse=True)
 
     return {
         "total_loads": total,
         "validated_loads": validated,
         "pending_loads": pending,
-        "error_loads": errors,
+        "error_loads": error_loads_count,
+        "operation_loads": operation_count,
         "total_weight": total_weight,
         "rule_breakdown": rule_counts,
         "district_performance": district_performance
+    }
+
+@app.get("/analytics/fast-track")
+def get_fast_track_analytics(db: Session = Depends(get_db)):
+    from datetime import datetime, timedelta
+    threshold = datetime.now() - timedelta(hours=48)
+    
+    # Filter only loads updated in the last 48h
+    recent_loads_query = db.query(models.Load.load_identifier).filter(models.Load.updated_at >= threshold)
+    recent_identifiers = [r[0] for r in recent_loads_query.all()]
+    
+    # Error classification counts for RECENT loads only
+    rule_counts = {k: 0 for k in [
+        "duplicado", "documento", "campos", "placa", "peso_limite", 
+        "peso_ficticio", "desconto", "rateio_peso", "rateio_parceiro", 
+        "rateio_tech", "rateio_possivel", "peso_duplicado", "rateio_mesmo_pdr"
+    ]}
+    
+    if recent_identifiers:
+        rule_counts_raw = db.query(models.ErrorLedger.error_type, func.count(models.ErrorLedger.id))\
+            .filter(models.ErrorLedger.load_identifier.in_(recent_identifiers))\
+            .group_by(models.ErrorLedger.error_type).all()
+            
+        for etype, count in rule_counts_raw:
+            if etype in rule_counts:
+                rule_counts[etype] = count
+
+    return {
+        "total_recent": len(recent_identifiers),
+        "rule_breakdown": rule_counts
     }
 
 @app.get("/loads/export")
@@ -130,14 +246,15 @@ def export_rule_csv(rule_filter: str, db: Session = Depends(get_db)):
 @app.post("/validate")
 def trigger_validation(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # 1. Reset everything to pending and CLEAR old error messages
-    # This is vital so that 100% of the 80k rows are revisited
-    db.query(models.Load).filter(models.Load.status == "error").update({
+    # This is vital so that 100% of the row count (80k+) is revisited
+    db.query(models.Load).update({
         "status": "pending",
         "error_message": None
     })
     
-    # 2. Clear tracking
+    # 2. Clear tracking tables entirely
     db.query(models.ValidatedLoad).delete()
+    db.query(models.ErrorLedger).delete()
     db.commit()
     
     # 3. Run validation in background to avoid browser timeout
@@ -274,19 +391,22 @@ async def upload_spreadsheet(file: UploadFile = File(...), db: Session = Depends
             except: 
                 return 0.0
 
+        # Optimization: Fetch all existing identifiers once to avoid N queries
+        existing_loads_map = {l.load_identifier: l for l in db.query(models.Load).all()}
+        
+        chunk_updates = []
         for _, row in df.iterrows():
             raw_id = row.get(col_id)
             if raw_id is None or pd.isna(raw_id) or str(raw_id).strip() == "":
                 continue
                 
             load_id = str(raw_id).strip()
-            
-            # UPDATE OR CREATE logic
-            load = db.query(models.Load).filter(models.Load.load_identifier == load_id).first()
+            load = existing_loads_map.get(load_id)
             
             if not load:
                 load = models.Load(load_identifier=load_id)
                 db.add(load)
+                existing_loads_map[load_id] = load # Track new one too
                 imported_count += 1
             else:
                 updated_count += 1
@@ -303,10 +423,11 @@ async def upload_spreadsheet(file: UploadFile = File(...), db: Session = Depends
             load.weight_gross = to_float(row.get(col_weight_gross))
             load.weight_net = to_float(row.get(col_weight_net))
             load.status = "pending" # Reset to re-validate
+            load.updated_at = models.func.now() # Mark as newly arrived/updated now
                 
-            # Flush every 1000 rows to keep memory stable
-            if (imported_count + updated_count) % 1000 == 0:
-                db.commit()
+            # Flush periodically
+            if (imported_count + updated_count) % 2000 == 0:
+                db.flush() # Send to DB but don't commit yet to keep transaction open
         
         db.commit()
         
@@ -325,4 +446,54 @@ async def upload_spreadsheet(file: UploadFile = File(...), db: Session = Depends
         print(f"UPLOAD FATAL ERROR: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Erro ao processar dados da planilha: {str(e)}")
+@app.post("/loads/register/import")
+async def import_registered_loads(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not file.filename.endswith(('.xlsx', '.csv')):
+        raise HTTPException(status_code=400, detail="Invalid file format")
+    
+    content = await file.read()
+    buffer = io.BytesIO(content)
+    
+    try:
+        df = pd.read_excel(buffer) if file.filename.endswith('.xlsx') else pd.read_csv(buffer)
+        
+        # Clean column names to be flexible
+        df.columns = [str(c).upper().strip() for c in df.columns]
+        
+        # Mapping: COD -> visit_code, ID -> load_identifier, MOTIVO -> reason
+        col_map = {
+            'COD': next((c for c in df.columns if 'COD' in c), None),
+            'ID': next((c for c in df.columns if 'ID' in c), None),
+            'MOTIVO': next((c for c in df.columns if 'MOTIV' in c), None),
+        }
+
+        if not col_map['ID']:
+            raise HTTPException(status_code=400, detail="Coluna 'ID' não encontrada na planilha.")
+
+        # Batch check for existing
+        existing_ids = {r[0] for r in db.query(models.RegisteredLoad.load_identifier).all()}
+        
+        new_records = []
+        for _, row in df.iterrows():
+            l_id = str(row.get(col_map['ID'])).strip()
+            if not l_id or l_id == 'nan' or l_id in existing_ids:
+                continue
+            
+            new_records.append(models.RegisteredLoad(
+                visit_code=str(row.get(col_map['COD'] or 'N/A')).strip() if col_map['COD'] else 'N/A',
+                load_identifier=l_id,
+                column_name="IMPORTAÇÃO", 
+                user_name="IMPORTAÇÃO",
+                reason=str(row.get(col_map['MOTIVO'] or 'Importação em massa')).strip() if col_map['MOTIVO'] else 'Importação em massa'
+            ))
+            existing_ids.add(l_id) # Avoid duplicates in same file
+
+        if new_records:
+            db.bulk_save_objects(new_records)
+            db.commit()
+            
+        return {"message": f"{len(new_records)} IDs registrados com sucesso!"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro no import: {str(e)}")

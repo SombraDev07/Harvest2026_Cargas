@@ -1,0 +1,31 @@
+{
+    "load": {
+        "id": 19,
+        "load_identifier": "2955191",
+        "truck_plate": "IXQ-5J34",
+        "product": "TARUMA COMERCIO E REPRESENTACOES LTDA",
+        "weight_gross": 0.0,
+        "weight_net": 36260.0,
+        "timestamp": "2026-03-03 18:09:12",
+        "status": "pending",
+        "error_message": null,
+        "district": "IJUI-SOJA",
+        "visit_code": "KMA295300",
+        "doc_number": "311596",
+        "rateio": "N\u00c3O",
+        "city": "IJUI",
+        "cnpj_filial": "94.813.102/0008-46",
+        "technology": "Participante",
+        "load_time": "09:50"
+    },
+    "errors": [
+        {
+            "id": 18839,
+            "load_identifier": "2955191",
+            "district": "IJUI-SOJA",
+            "error_type": "rateio",
+            "error_message": "Diverg\u00eancia Grupo Rateio: Total PLCD (36260.00) > Peso (0.00)",
+            "occurred_at": "2026-03-06 15:03:46"
+        }
+    ]
+}
