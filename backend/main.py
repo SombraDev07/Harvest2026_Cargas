@@ -348,19 +348,26 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
     buffer = io.BytesIO(content)
     
     try:
-        # Load File
-        if file.filename.endswith('.xlsx'):
-            df = pd.read_excel(buffer, header=1) 
-        else:
-            df = pd.read_csv(buffer)
+        # Load File - Attempt header=1 (Second Row) then header=0 (First Row)
+        try:
+            if file.filename.endswith('.xlsx'):
+                df = pd.read_excel(buffer, header=1) 
+            else:
+                df = pd.read_csv(buffer, header=1)
+        except:
+            buffer.seek(0)
+            if file.filename.endswith('.xlsx'):
+                df = pd.read_excel(buffer, header=0)
+            else:
+                df = pd.read_csv(buffer, header=0)
             
         # 1. MAKE HEADERS UNIQUE & ROBUST
-        # If there are empty or duplicate headers, pandas row.get() returns a Series instead of scalar, 
-        # which crashes clean_val / to_float with "truth value of a series is ambiguous".
         new_cols = []
         counts = {}
-        for c in df.columns:
-            base = normalize_str(str(c)).upper().strip() or "COLUNA_VAZIA"
+        original_cols = list(df.columns)
+        for c in original_cols:
+            c_str = str(c) if not pd.isna(c) else "COLUNA"
+            base = normalize_str(c_str).upper().strip() or "VAZIA"
             if base in counts:
                 counts[base] += 1
                 new_cols.append(f"{base}_{counts[base]}")
@@ -374,17 +381,15 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
             # 1. Exact normalized match
             for target in names:
                 norm_target = normalize_str(str(target)).upper().strip()
-                if norm_target in normalized_cols:
-                    return norm_target
+                if norm_target in normalized_cols: return norm_target
             # 2. Fragment match
             for target in names:
                 norm_target = normalize_str(str(target)).upper().strip()
                 for col in normalized_cols:
-                    if norm_target in col:
-                        return col
+                    if norm_target in col: return col
             # 3. Index fallback
             if len(df.columns) > default_idx: return df.columns[default_idx]
-            return names[0] if names else f"COL_{default_idx}"
+            return normalized_cols[0] if normalized_cols else "MISSING"
 
         col_id = find_column_robust(["ID"], 13)
         col_district = find_column_robust(["DISTRITO FILIAL", "DISTRITO"], 8)
@@ -402,8 +407,7 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
 
         # Helper for ultra-defensive converters
         def to_float(val):
-            # If val is a Series (due to duplicate col names I missed), take first element
-            if isinstance(val, pd.Series): val = val.iloc[0]
+            if isinstance(val, pd.Series): val = val.iloc[0] if not val.empty else 0.0
             if pd.isna(val) or val == "" or str(val).lower() == "nan": return 0.0
             try:
                 if isinstance(val, (int, float)): return float(val)
@@ -412,7 +416,7 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
             except: return 0.0
 
         def clean_val(val):
-            if isinstance(val, pd.Series): val = val.iloc[0]
+            if isinstance(val, pd.Series): val = val.iloc[0] if not val.empty else "N/A"
             if pd.isna(val) or val == "" or str(val).lower() == "nan": return "N/A"
             return str(val).strip()
 
@@ -478,8 +482,10 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
     except Exception as e:
         print(f"UPLOAD FATAL ERROR: {e}")
         import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Erro interno no processamento: {str(e)}")
+        tb = traceback.format_exc()
+        print(tb)
+        # Return full traceback in detail for surgical debugging
+        raise HTTPException(status_code=500, detail=f"ERRO TÉCNICO: {str(e)}\n\n{tb[:500]}...")
 @app.post("/loads/register/import")
 async def import_registered_loads(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.endswith(('.xlsx', '.csv')):
