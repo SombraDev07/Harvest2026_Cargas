@@ -373,6 +373,7 @@ async def upload_spreadsheet(file: UploadFile = File(...), db: Session = Depends
         col_city = find_column(["CIDADE FILIAL", "CIDADE"], 10)
         col_cnpj_filial = find_column(["CNPJ FILIAL PDR", "CNPJ FILIAL", "CNPJ/FILIAL"], 12)
         col_rateio = find_column(["rateio"], 31)
+        col_technology = find_column(["TECNOLOGIA", "TECH", "SISTEMA"], 18) # Usually around index 18-20
 
         # Unique districts for the frontend filter
         unique_districts = df[col_district].dropna().unique().astype(str).tolist() if col_district in df.columns else []
@@ -420,6 +421,7 @@ async def upload_spreadsheet(file: UploadFile = File(...), db: Session = Depends
             load.city = clean_val(row.get(col_city))
             load.cnpj_filial = clean_val(row.get(col_cnpj_filial))
             load.rateio = clean_val(row.get(col_rateio)) or "NÃO"
+            load.technology = clean_val(row.get(col_technology))
             load.weight_gross = to_float(row.get(col_weight_gross))
             load.weight_net = to_float(row.get(col_weight_net))
             load.status = "pending" # Reset to re-validate
@@ -431,8 +433,8 @@ async def upload_spreadsheet(file: UploadFile = File(...), db: Session = Depends
         
         db.commit()
         
-        # Immediate Validation for the first 10,000 pending loads
-        validation.run_batch_validation(db, limit=10000)
+        # Immediate Validation for the first 50,000 pending loads
+        validation.run_batch_validation(db, limit=50000)
         
         return {
             "message": "Cargas processadas e analisadas com sucesso!",
