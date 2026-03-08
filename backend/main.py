@@ -38,12 +38,12 @@ def get_loads(
 ):
     query = db.query(models.Load)
     
-    if status:
-        query = query.filter(models.Load.status == status)
-    
     if error_type:
-        # We check both ErrorLedger link and error_message for robustness
-        query = query.filter(models.Load.error_message.like(f"%{error_type}%"))
+        # Join with ErrorLedger to filter by the technical record key (e.g., 'documento')
+        query = query.join(models.ErrorLedger, models.Load.load_identifier == models.ErrorLedger.load_identifier)\
+                     .filter(models.ErrorLedger.error_type == error_type)
+    elif status:
+        query = query.filter(models.Load.status == status)
         
     if district:
         query = query.filter(models.Load.district == district)
