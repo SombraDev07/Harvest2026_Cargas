@@ -348,6 +348,7 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
     buffer = io.BytesIO(content)
     
     try:
+        df = None
         # Load File - Attempt header=1 (Second Row) then header=0 (First Row)
         try:
             if file.filename.endswith('.xlsx'):
@@ -361,11 +362,13 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
             else:
                 df = pd.read_csv(buffer, header=0)
             
+        if df is None or df.empty:
+            raise Exception("Planilha vazia ou não pôde ser lida.")
+
         # 1. MAKE HEADERS UNIQUE & ROBUST
         new_cols = []
         counts = {}
-        original_cols = list(df.columns)
-        for c in original_cols:
+        for c in df.columns:
             c_str = str(c) if not pd.isna(c) else "COLUNA"
             base = normalize_str(c_str).upper().strip() or "VAZIA"
             if base in counts:
@@ -420,13 +423,15 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
             if pd.isna(val) or val == "" or str(val).lower() == "nan": return "N/A"
             return str(val).strip()
 
-        # Optimization: Fetch all existing identifiers
+        # Pre-fetch for UPSERT efficiency
         existing_loads_map = {l.load_identifier: l for l in db.query(models.Load).all()}
         
         imported_count = 0
         updated_count = 0
         
-        unique_districts = df[col_district].dropna().unique().astype(str).tolist() if col_district in df.columns else []
+        unique_districts = []
+        if col_district in df.columns:
+            unique_districts = df[col_district].dropna().unique().astype(str).tolist()
 
         for row_idx, row in df.iterrows():
             raw_id = row.get(col_id)
@@ -480,10 +485,9 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
         }
         
     except Exception as e:
-        print(f"UPLOAD FATAL ERROR: {e}")
         import traceback
         tb = traceback.format_exc()
-        print(tb)
+        print(f"UPLOAD FATAL ERROR:\n{tb}")
         # Return full traceback in detail for surgical debugging
         raise HTTPException(status_code=500, detail=f"ERRO TÉCNICO: {str(e)}\n\n{tb[:500]}...")
 @app.post("/loads/register/import")
