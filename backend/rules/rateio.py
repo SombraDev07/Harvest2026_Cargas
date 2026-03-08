@@ -1,4 +1,4 @@
-from .utils import parse_time_minutes
+from rules.utils import parse_time_minutes
 
 def validate_rateio_groups(loads: list):
     """

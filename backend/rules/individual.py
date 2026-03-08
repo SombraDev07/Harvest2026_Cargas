@@ -1,6 +1,6 @@
 import re
 import models
-from .utils import extract_rom_parts
+from rules.utils import extract_rom_parts
 
 def validate_individual_rules(load: models.Load):
     """

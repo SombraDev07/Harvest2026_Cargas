@@ -1,5 +1,5 @@
 from collections import Counter
-from .utils import extract_rom_parts
+from rules.utils import extract_rom_parts
 
 def validate_romaneio_context(loads: list):
     """
