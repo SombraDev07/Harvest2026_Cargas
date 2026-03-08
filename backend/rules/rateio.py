@@ -23,25 +23,25 @@ def validate_rateio_groups(loads: list):
         # Sort by load_time minutes
         group.sort(key=lambda x: parse_time_minutes(x.load_time))
         
-            # B. Sub-grouping: Rolling Window
-            # Increased to 50 minutes as per user request
-            sub_groups = []
-            if group:
-                current_sub = [group[0]]
-                for idx in range(1, len(group)):
-                    prev = group[idx-1]
-                    curr = group[idx]
-                    t_prev = parse_time_minutes(prev.load_time)
-                    t_curr = parse_time_minutes(curr.load_time)
-                    
-                    # Group by: same tech AND within 50 minutes
-                    if (t_prev >= 0 and t_curr >= 0 and (t_curr - t_prev) <= 50 and 
-                        prev.technology == curr.technology):
-                        current_sub.append(curr)
-                    else:
-                        sub_groups.append(current_sub)
-                        current_sub = [curr]
-                sub_groups.append(current_sub)
+        # B. Sub-grouping: Rolling Window
+        # Increased to 50 minutes as per user request
+        sub_groups = []
+        if group:
+            current_sub = [group[0]]
+            for idx in range(1, len(group)):
+                prev = group[idx-1]
+                curr = group[idx]
+                t_prev = parse_time_minutes(prev.load_time)
+                t_curr = parse_time_minutes(curr.load_time)
+                
+                # Group by: same tech AND within 50 minutes
+                if (t_prev >= 0 and t_curr >= 0 and (t_curr - t_prev) <= 50 and 
+                    prev.technology == curr.technology):
+                    current_sub.append(curr)
+                else:
+                    sub_groups.append(current_sub)
+                    current_sub = [curr]
+            sub_groups.append(current_sub)
 
             # C. Apply Per-Group Rules
             for sub in sub_groups:
