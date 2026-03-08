@@ -446,6 +446,7 @@ async def upload_spreadsheet(file: UploadFile = File(...), db: Session = Depends
         print(f"UPLOAD FATAL ERROR: {e}")
         import traceback
         traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro interno no processamento: {str(e)}")
 @app.post("/loads/register/import")
 async def import_registered_loads(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.endswith(('.xlsx', '.csv')):
