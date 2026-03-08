@@ -348,26 +348,43 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
     buffer = io.BytesIO(content)
     
     try:
-        # User specified: Line 2 (index 1), Col I (index 8), Col N (index 13)
-        df = pd.read_excel(buffer, header=1) if file.filename.endswith('.xlsx') else pd.read_csv(buffer)
-        
-        # Clean column names to be flexible (Remove accents, uppercase, strip)
-        # This makes column detection much more robust
-        df.columns = [normalize_str(c).upper().strip() for c in df.columns]
+        # Load File
+        if file.filename.endswith('.xlsx'):
+            df = pd.read_excel(buffer, header=1) 
+        else:
+            df = pd.read_csv(buffer)
+            
+        # 1. MAKE HEADERS UNIQUE & ROBUST
+        # If there are empty or duplicate headers, pandas row.get() returns a Series instead of scalar, 
+        # which crashes clean_val / to_float with "truth value of a series is ambiguous".
+        new_cols = []
+        counts = {}
+        for c in df.columns:
+            base = normalize_str(str(c)).upper().strip() or "COLUNA_VAZIA"
+            if base in counts:
+                counts[base] += 1
+                new_cols.append(f"{base}_{counts[base]}")
+            else:
+                counts[base] = 0
+                new_cols.append(base)
+        df.columns = new_cols
         normalized_cols = list(df.columns)
-        cols = normalized_cols # Use normalized as base for index mapping etc.
 
-        # Strict Index Mapping (Relative to df.columns)
-        # ... Mapping logic updated below to use normalized matches ...
-        
         def find_column_robust(names, default_idx):
+            # 1. Exact normalized match
             for target in names:
-                norm_target = normalize_str(target).upper()
+                norm_target = normalize_str(str(target)).upper().strip()
                 if norm_target in normalized_cols:
-                    return normalized_cols[normalized_cols.index(norm_target)]
-            # Fallback to index
-            if len(normalized_cols) > default_idx: return normalized_cols[default_idx]
-            return names[0]
+                    return norm_target
+            # 2. Fragment match
+            for target in names:
+                norm_target = normalize_str(str(target)).upper().strip()
+                for col in normalized_cols:
+                    if norm_target in col:
+                        return col
+            # 3. Index fallback
+            if len(df.columns) > default_idx: return df.columns[default_idx]
+            return names[0] if names else f"COL_{default_idx}"
 
         col_id = find_column_robust(["ID"], 13)
         col_district = find_column_robust(["DISTRITO FILIAL", "DISTRITO"], 8)
@@ -383,25 +400,31 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
         col_city = find_column_robust(["CIDADE FILIAL", "CIDADE"], 10)
         col_load_time = find_column_robust(["HORÁRIO", "HORA", "HORA DA CARGA"], 15)
 
-        # Helper for ultra-defensive numeric conversion
+        # Helper for ultra-defensive converters
         def to_float(val):
+            # If val is a Series (due to duplicate col names I missed), take first element
+            if isinstance(val, pd.Series): val = val.iloc[0]
             if pd.isna(val) or val == "" or str(val).lower() == "nan": return 0.0
             try:
                 if isinstance(val, (int, float)): return float(val)
-                # Handle BR format: 41.060 or 41.060,00
                 s = str(val).strip().replace('.', '').replace(',', '.')
                 return float(s)
-            except: 
-                return 0.0
+            except: return 0.0
 
         def clean_val(val):
+            if isinstance(val, pd.Series): val = val.iloc[0]
             if pd.isna(val) or val == "" or str(val).lower() == "nan": return "N/A"
             return str(val).strip()
 
-        # Optimization: Fetch all existing identifiers once
+        # Optimization: Fetch all existing identifiers
         existing_loads_map = {l.load_identifier: l for l in db.query(models.Load).all()}
         
-        for _, row in df.iterrows():
+        imported_count = 0
+        updated_count = 0
+        
+        unique_districts = df[col_district].dropna().unique().astype(str).tolist() if col_district in df.columns else []
+
+        for row_idx, row in df.iterrows():
             raw_id = row.get(col_id)
             if raw_id is None or pd.isna(raw_id) or str(raw_id).strip() == "":
                 continue
@@ -417,7 +440,7 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
             else:
                 updated_count += 1
 
-            # Populate/Update fields
+            # Populate Fields
             load.truck_plate = clean_val(row.get(col_plate))
             load.product = clean_val(row.get(col_product))
             load.district = clean_val(row.get(col_district))
@@ -432,20 +455,20 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
             load.weight_net = to_float(row.get(col_weight_net))
             load.status = "pending" 
             load.updated_at = models.func.now()
-                
-            if (imported_count + updated_count) % 2000 == 0:
+            
+            if (row_idx + 1) % 2000 == 0:
                 db.flush()
         
         db.commit()
         
-        # Immediate Validation (Non-blocking crash)
+        # Immediate Validation (Non-blocking)
         try:
             validation.run_batch_validation(db, limit=100000)
         except Exception as audit_err:
             print(f"AUTO-AUDIT WARNING: {audit_err}")
-        
+            
         return {
-            "message": "Cargas processadas e analisadas com sucesso!",
+            "message": "Cargas processadas com sucesso!",
             "total_rows": len(df),
             "imported_new": imported_count,
             "updated_existing": updated_count,
