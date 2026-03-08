@@ -43,19 +43,16 @@ def validate_romaneio_context(loads: list):
             errs.append(f"Romaneio duplicado nesta visita")
             load._temp_errors = errs
             
-        # New Rule (Clone Detection / Peso Duplicado)
-        # If weights are identical, it's a clone even if marked as SIM.
+        # Pesos Duplicados (Mesma Visita) - NEW CONTEXT
+        # Logic: PESO LÍQUIDO (KG) e PESO LÍQUIDO C/ DESCONTO (KG) se repetem na visita
+        # We already have gross_counts and net_counts from the visit-wide loop above
         is_dup_gross = gross_counts[load.weight_gross] > 1 if load.weight_gross > 10 else False
         is_dup_net = net_counts[load.weight_net] > 1 if load.weight_net > 10 else False
         
-        if is_dup_gross and is_dup_net:
-            errs = getattr(load, "_temp_errors", [])
-            errs.append(f"Alerta Clone: Pesos Bruto ({load.weight_gross:.2f}) e Líquido ({load.weight_net:.2f}) idênticos no grupo")
-            load._temp_errors = errs
-        elif (is_dup_gross or is_dup_net) and str(load.rateio).upper() == "NÃO":
+        if is_dup_gross or is_dup_net:
             errs = getattr(load, "_temp_errors", [])
             dup_val = load.weight_gross if is_dup_gross else load.weight_net
-            errs.append(f"Pesos duplicados (Mesma Visita): Valor {dup_val:.2f} se repete")
+            errs.append(f"Pesos duplicados (Mesma Visita): Valor {dup_val:.2f} se repete na visita")
             load._temp_errors = errs
         
     if not rom_data: return
@@ -67,8 +64,36 @@ def validate_romaneio_context(loads: list):
     mode_len = Counter(lengths).most_common(1)[0][0] if lengths else 0
     mode_prefix = Counter(prefixes).most_common(1)[0][0] if prefixes else ""
 
-    # Sort for Jump Analysis
-    rom_data.sort(key=lambda x: x["num"])
+    # Sort for Jump Analysis and Window Analysis
+    rom_data.sort(key=lambda x: validation.parse_time_minutes(x["load"].load_time))
+
+    for i, r in enumerate(rom_data):
+        load = r["load"]
+        existing_errors = getattr(load, "_temp_errors", [])
+        
+        # RULE 4: Possible Rateio (Aviso 20min)
+        # Logic: Mesma Placa, tecnologia e horario de 20min de diferença
+        if str(load.rateio).upper() == "NÃO":
+            my_plate = str(load.truck_plate or "").strip().upper()
+            my_tech = str(load.technology or "").strip()
+            my_t = validation.parse_time_minutes(load.load_time)
+            
+            # Check neighbors in the sorted list
+            for offset in [-1, 1]:
+                idx = i + offset
+                if 0 <= idx < len(rom_data):
+                    neighbor = rom_data[idx]["load"]
+                    n_plate = str(neighbor.truck_plate or "").strip().upper()
+                    n_tech = str(neighbor.technology or "").strip()
+                    n_t = validation.parse_time_minutes(neighbor.load_time)
+                    
+                    if (my_plate == n_plate and my_tech == n_tech and 
+                        my_t >= 0 and n_t >= 0 and abs(my_t - n_t) <= 20):
+                        existing_errors.append(f"Possível Rateio: Muito próximo de outro documento ({neighbor.doc_number}) - 20min")
+                        break
+
+        # A. Numeric Jump (Delta > 500)
+        # ... [remaining jump logic preserved] ...
 
     for i, r in enumerate(rom_data):
         load = r["load"]
