@@ -16,26 +16,27 @@ import {
   Database,
   Truck,
   Upload,
-  UserCheck
+  UserCheck,
+  HelpCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 const RULES = [
-  { id: 1, name: "Romaneios Duplicados", filter: "duplicado", icon: "📋", color: "text-red-400", statsKey: "duplicado" },
-  { id: 2, name: "Romaneio fora de padrão", filter: "padrão", icon: "🔍", color: "text-orange-400", statsKey: "documento" },
-  { id: 3, name: "Campos Obrigatórios", filter: "não preenchido", icon: "❗", color: "text-amber-400", statsKey: "campos" },
-  { id: 4, name: "Placa Inválida", filter: "Placa inválida", icon: "🚗", color: "text-rose-400", statsKey: "placa" },
-  { id: 5, name: "Excesso de Peso", filter: "acima do limite", icon: "⚖️", color: "text-purple-400", statsKey: "peso_limite" },
-  { id: 6, name: "Peso Fictício", filter: "peso fictício", icon: "🔢", color: "text-pink-400", statsKey: "peso_ficticio" },
-  { id: 7, name: "Desconto Excessivo", filter: "Desconto excessivo", icon: "📉", color: "text-yellow-400", statsKey: "desconto" },
-  { id: 8, name: "Rateio: Peso Inválido (PLCD > PL)", filter: "Divergência Grupo Rateio", icon: "⚖️", color: "text-blue-400", statsKey: "rateio_peso" },
-  { id: 9, name: "Rateio: Sem Parceiro (SIM isolado)", filter: "Rateio sem parceiro", icon: "👤", color: "text-indigo-400", statsKey: "rateio_parceiro" },
-  { id: 10, name: "Rateio: Tecnologias Diferentes", filter: "Regra Rateio 3", icon: "🧬", color: "text-cyan-400", statsKey: "rateio_tech" },
-  { id: 11, name: "Possível Rateio (Aviso 20min)", filter: "Possível Rateio", icon: "🔔", color: "text-sky-400", statsKey: "rateio_possivel" },
-  { id: 12, name: "Pesos Duplicados (Mesma Visita)", filter: "Peso duplicado", icon: "👯", color: "text-emerald-400", statsKey: "peso_duplicado" },
-  { id: 13, name: "Rateio: Mesmo Produtor", filter: "Rateio mesma conta", icon: "👤", color: "text-violet-400", statsKey: "rateio_mesmo_pdr" },
+  { id: 1, name: "Romaneios Duplicados", filter: "duplicado", icon: "📋", color: "text-red-400", statsKey: "duplicado", description: "Detecta documentos com o mesmo número para o mesmo produtor nesta visita (exceto em rateios)." },
+  { id: 2, name: "Romaneio fora de padrão", filter: "padrão", icon: "🔍", color: "text-orange-400", statsKey: "documento", description: "Identifica romaneios que divergem do padrão de prefixo ou quantidade de dígitos predominante no grupo." },
+  { id: 3, name: "Campos Obrigatórios", filter: "não preenchido", icon: "❗", color: "text-amber-400", statsKey: "campos", description: "Verifica se campos essenciais como Produtor, Romaneio ou Pesos estão preenchidos na planilha." },
+  { id: 4, name: "Placa Inválida", filter: "Placa inválida", icon: "🚗", color: "text-rose-400", statsKey: "placa", description: "Valida se a placa segue o formato Mercosul ou antigo e se não está vazia." },
+  { id: 5, name: "Excesso de Peso", filter: "acima do limite", icon: "⚖️", color: "text-purple-400", statsKey: "peso_limite", description: "Detecta cargas individuais que ultrapassam o limite técnico ou legal permitido (ex: 52k kg)." },
+  { id: 6, name: "Peso Fictício", filter: "peso fictício", icon: "🔢", color: "text-pink-400", statsKey: "peso_ficticio", description: "Identifica pesos terminados em padrões como 000 ou 999, indicando possível preenchimento manual." },
+  { id: 7, name: "Desconto Excessivo", filter: "Desconto excessivo", icon: "📉", color: "text-yellow-400", statsKey: "desconto", description: "Alerta quando a diferença entre Peso Bruto e Líquido ultrapassa 25% (fora de casos de rateio)." },
+  { id: 8, name: "Rateio: Peso Inválido (PLCD > PL)", filter: "Divergência Grupo Rateio", icon: "⚖️", color: "text-blue-400", statsKey: "rateio_peso", description: "Valida se a soma dos pesos com desconto (PLCD) é superior à soma dos pesos líquidos (PL) no grupo de rateio." },
+  { id: 9, name: "Rateio: Sem Parceiro (SIM isolado)", filter: "Rateio sem parceiro", icon: "👤", color: "text-indigo-400", statsKey: "rateio_parceiro", description: "Cargas marcadas com Rateio SIM que não possuem outro parceiro no mesmo grupo de 50 minutos." },
+  { id: 10, name: "Rateio: Tecnologias Diferentes", filter: "Regra Rateio 3", icon: "🧬", color: "text-cyan-400", statsKey: "rateio_tech", description: "Identifica grupos de rateio onde as cargas possuem tecnologias de pesagem divergentes no cadastro." },
+  { id: 11, name: "Possível Rateio (Aviso 20min)", filter: "Possível Rateio", icon: "🔔", color: "text-sky-400", statsKey: "rateio_possivel", description: "Alerta para cargas de mesma placa/tech pesadas com menos de 20min de intervalo, mas sem marcação de rateio." },
+  { id: 12, name: "Pesos Duplicados (Mesma Visita)", filter: "Peso duplicado", icon: "👯", color: "text-emerald-400", statsKey: "peso_duplicado", description: "Detecta pesos idênticos (Bruto ou Líquido) se repetindo na mesma visita para cargas fora de rateio." },
+  { id: 13, name: "Rateio: Mesmo Produtor", filter: "Rateio mesma conta", icon: "👤", color: "text-violet-400", statsKey: "rateio_mesmo_pdr", description: "Detecta grupos de rateio onde o produtor é o mesmo para todas as cargas, o que é um uso incorreto." },
 ];
 
 function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[0], totalCount?: number, selectedDistrict: string }) {
@@ -196,8 +197,14 @@ function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[
         <div className="flex items-center gap-4">
           <span className="text-2xl">{rule.icon}</span>
           <div>
-            <h3 className={`text-lg font-black tracking-tight ${rule.color} uppercase`}>
-              {rule.name} 
+            <h3 className={`text-lg font-black tracking-tight ${rule.color} uppercase flex items-center gap-2`}>
+              {rule.name}
+              <button 
+                onClick={(e) => { e.stopPropagation(); alert(`REGRA: ${rule.name}\n\n${rule.description}`); }}
+                className="hover:text-white transition-colors cursor-help bg-white/5 p-1 rounded-full"
+              >
+                <HelpCircle size={14} />
+              </button>
               {totalCount !== undefined && (
                 <span className="ml-3 px-2 py-0.5 rounded-lg bg-red-500/10 border border-red-500/20 text-xs font-bold tabular-nums">
                   {totalCount.toLocaleString()} ocorrências
