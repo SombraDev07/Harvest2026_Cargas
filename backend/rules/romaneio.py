@@ -16,14 +16,16 @@ def validate_romaneio_context(loads: list):
     net_counts = Counter()
     
     for l in loads:
-        is_rateio_no = str(l.rateio).upper() == "NÃO"
+        rateio_str = str(l.rateio or "NÃO").strip().upper()
+        is_rateio_no = rateio_str in ["NÃO", "NAO"]
+        
         if is_rateio_no and l.doc_number != "N/A":
             doc_counts[str(l.doc_number)] += 1
         
         # New Rule: Peso Duplicado (within same visit)
-        if is_rateio_no:
-            if l.weight_gross > 10: gross_counts[l.weight_gross] += 1
-            if l.weight_net > 10: net_counts[l.weight_net] += 1
+        # We count frequency across ALL loads, but only flag NO-Rateio ones later
+        if l.weight_gross > 0.1: gross_counts[round(l.weight_gross, 2)] += 1
+        if l.weight_net > 0.1: net_counts[round(l.weight_net, 2)] += 1
 
     for load in loads:
         doc = str(load.doc_number or "")
@@ -36,24 +38,26 @@ def validate_romaneio_context(loads: list):
             "len": len(doc)
         })
         
+        rateio_str = str(load.rateio or "NÃO").strip().upper()
+        is_rateio_no = rateio_str in ["NÃO", "NAO"]
+
         # Rule 1 (Duplicates)
-        # We respect user feedback: if it's SIM, the romaneio number CAN be duplicated.
-        if doc_counts[str(load.doc_number)] > 1 and str(load.rateio).upper() == "NÃO":
+        if is_rateio_no and doc_counts[str(load.doc_number)] > 1:
             errs = getattr(load, "_temp_errors", [])
             errs.append(f"Romaneio duplicado nesta visita")
             load._temp_errors = errs
             
         # Pesos Duplicados (Mesma Visita) - NEW CONTEXT
-        # Logic: PESO LÍQUIDO (KG) e PESO LÍQUIDO C/ DESCONTO (KG) se repetem na visita
-        # We already have gross_counts and net_counts from the visit-wide loop above
-        is_dup_gross = gross_counts[load.weight_gross] > 1 if load.weight_gross > 10 else False
-        is_dup_net = net_counts[load.weight_net] > 1 if load.weight_net > 10 else False
-        
-        if is_dup_gross or is_dup_net:
-            errs = getattr(load, "_temp_errors", [])
-            dup_val = load.weight_gross if is_dup_gross else load.weight_net
-            errs.append(f"Pesos duplicados (Mesma Visita): Valor {dup_val:.2f} se repete na visita")
-            load._temp_errors = errs
+        # Flag only if it's NOT a rateio load, but its weight matches ANY other load in the visit
+        if is_rateio_no:
+            is_dup_gross = gross_counts[round(load.weight_gross, 2)] > 1 if load.weight_gross > 0.1 else False
+            is_dup_net = net_counts[round(load.weight_net, 2)] > 1 if load.weight_net > 0.1 else False
+            
+            if is_dup_gross or is_dup_net:
+                errs = getattr(load, "_temp_errors", [])
+                dup_val = load.weight_gross if is_dup_gross else load.weight_net
+                errs.append(f"Pesos duplicados (Mesma Visita): Valor {dup_val:.2f} se repete na visita")
+                load._temp_errors = errs
         
     if not rom_data: return
 
