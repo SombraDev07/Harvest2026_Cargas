@@ -433,8 +433,8 @@ async def upload_spreadsheet(file: UploadFile = File(...), db: Session = Depends
         
         db.commit()
         
-        # Immediate Validation for the first 50,000 pending loads
-        validation.run_batch_validation(db, limit=50000)
+        # Immediate Validation for the first 100,000 pending loads
+        validation.run_batch_validation(db, limit=100000)
         
         return {
             "message": "Cargas processadas e analisadas com sucesso!",
