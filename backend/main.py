@@ -373,7 +373,7 @@ async def upload_spreadsheet(file: UploadFile = File(...), db: Session = Depends
         col_city = find_column(["CIDADE FILIAL", "CIDADE"], 10)
         col_cnpj_filial = find_column(["CNPJ FILIAL PDR", "CNPJ FILIAL", "CNPJ/FILIAL"], 12)
         col_rateio = find_column(["rateio"], 31)
-        col_technology = find_column(["TECNOLOGIA", "TECH", "SISTEMA"], 18) # Usually around index 18-20
+        col_technology = find_column(["RESULTADO DO TESTE ACOMPANHADO", "TECNOLOGIA", "TECH", "SISTEMA"], 18) # Usually around index 18-20
 
         # Unique districts for the frontend filter
         unique_districts = df[col_district].dropna().unique().astype(str).tolist() if col_district in df.columns else []
