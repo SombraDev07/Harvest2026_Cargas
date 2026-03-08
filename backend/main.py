@@ -8,6 +8,7 @@ import io
 
 import models, schemas, database, validation
 from database import engine, get_db
+from rules.utils import normalize_str
 
 # Create tables
 models.Base.metadata.create_all(bind=engine)
@@ -382,12 +383,21 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
         col_city = find_column_robust(["CIDADE FILIAL", "CIDADE"], 10)
         col_load_time = find_column_robust(["HORÁRIO", "HORA", "HORA DA CARGA"], 15)
 
-        # Unique districts for the frontend filter
-        unique_districts = df[col_district].dropna().unique().astype(str).tolist() if col_district in df.columns else []
-        
-        imported_count = 0
-        updated_count = 0
-        
+        # Helper for ultra-defensive numeric conversion
+        def to_float(val):
+            if pd.isna(val) or val == "" or str(val).lower() == "nan": return 0.0
+            try:
+                if isinstance(val, (int, float)): return float(val)
+                # Handle BR format: 41.060 or 41.060,00
+                s = str(val).strip().replace('.', '').replace(',', '.')
+                return float(s)
+            except: 
+                return 0.0
+
+        def clean_val(val):
+            if pd.isna(val) or val == "" or str(val).lower() == "nan": return "N/A"
+            return str(val).strip()
+
         # Optimization: Fetch all existing identifiers once
         existing_loads_map = {l.load_identifier: l for l in db.query(models.Load).all()}
         
