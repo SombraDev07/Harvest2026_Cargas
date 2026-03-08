@@ -119,6 +119,16 @@ def finish_analysis(rule_filter: str, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Success"}
 
+@app.delete("/system/reset")
+def reset_system(db: Session = Depends(get_db)):
+    """Deletes all loads and audit data, but preserves registered IDs (allowlist)."""
+    db.query(models.ErrorLedger).delete()
+    db.query(models.OperationLog).delete()
+    db.query(models.TableAnalysis).delete()
+    db.query(models.Load).delete()
+    db.commit()
+    return {"message": "Sistema reiniciado com sucesso!"}
+
 @app.get("/analytics", response_model=schemas.AnalyticsSummary)
 def get_analytics(db: Session = Depends(get_db)):
     total = db.query(models.Load).count()
@@ -321,10 +331,18 @@ def trigger_validation_old(district: str = None, db: Session = Depends(get_db)):
     return {"message": f"Validation batch completed for {district or 'all districts'}", "results": results}
 
 @app.post("/upload")
-async def upload_spreadsheet(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Session = Depends(get_db)):
     if not file.filename.endswith(('.xlsx', '.csv')):
         raise HTTPException(status_code=400, detail="Invalid file format")
     
+    if wipe:
+        print("--- [WIPE] Clearing existing data before upload ---")
+        db.query(models.ErrorLedger).delete()
+        db.query(models.OperationLog).delete()
+        db.query(models.TableAnalysis).delete()
+        db.query(models.Load).delete()
+        db.commit()
+
     content = await file.read()
     buffer = io.BytesIO(content)
     

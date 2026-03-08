@@ -33,7 +33,21 @@ export default function SpreadsheetPage() {
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
   const [selectedDistrict, setSelectedDistrict] = useState<string>("");
   const [validationMessage, setValidationMessage] = useState<string>("");
+  const [shouldWipe, setShouldWipe] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSystemReset = async () => {
+    if (!confirm("⚠️ ATENÇÃO: Isso apagará todas as cargas, erros e análises atuais. O banco de IDs Registrados será preservado. Deseja continuar?")) return;
+    
+    try {
+      await axios.delete(`${API_BASE_URL}/system/reset`);
+      alert("Sistema reiniciado com sucesso!");
+      setUploadResult(null);
+      window.location.reload();
+    } catch (error) {
+      alert("Erro ao reiniciar sistema.");
+    }
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -47,7 +61,9 @@ export default function SpreadsheetPage() {
     formData.append("file", file);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/upload`, formData);
+      const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
+        params: { wipe: shouldWipe }
+      });
       setUploadResult(response.data);
     } catch (error: any) {
       console.error("Upload failed", error);
@@ -134,6 +150,29 @@ export default function SpreadsheetPage() {
               )}
             </AnimatePresence>
           </motion.div>
+
+          {/* Upload Controls */}
+          <div className="flex flex-wrap items-center justify-between gap-4 px-4">
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setShouldWipe(!shouldWipe)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${shouldWipe ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' : 'bg-white/5 border-white/10 text-gray-500'}`}
+              >
+                <Trash2 size={14} />
+                Limpar dados anteriores ao importar
+                <div className={`w-8 h-4 rounded-full relative transition-all ${shouldWipe ? 'bg-orange-500' : 'bg-gray-700'}`}>
+                   <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${shouldWipe ? 'left-4.5' : 'left-0.5'}`} />
+                </div>
+              </button>
+            </div>
+
+            <button 
+              onClick={handleSystemReset}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all"
+            >
+              <Trash2 size={14} /> Reiniciar Sistema
+            </button>
+          </div>
 
           {/* Results Analysis Area */}
           <AnimatePresence>
