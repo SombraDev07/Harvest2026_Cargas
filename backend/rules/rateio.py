@@ -52,14 +52,17 @@ def validate_rateio_groups(loads: list):
                 
                 unique_techs = list(set(l.technology for l in sub if l.technology != "N/A"))
                 
-                # RULE 1: PLCD Integrity
-                # Logic: If marked SIM, PLCD (Peso Líquido c/ Desconto) cannot be > PL (Peso Líquido)
+                # RULE 1: PLCD Integrity (Group Sum)
+                # Logic: Total PLCD from 'SIM' loads cannot exceed Total PL from the same group
                 if count_sim >= 1:
-                    for l in sub:
-                        if str(l.rateio).upper() == "SIM":
-                            if l.weight_net > l.weight_gross:
+                    total_window_pl = sum(l.weight_gross for l in sub if str(l.rateio).upper() == "SIM")
+                    total_window_plcd = sum(l.weight_net for l in sub if str(l.rateio).upper() == "SIM")
+                    
+                    if total_window_plcd > total_window_pl + 0.1: # 0.1 margin for float rounding
+                        for l in sub:
+                            if str(l.rateio).upper() == "SIM":
                                 errs = getattr(l, "_temp_errors", [])
-                                errs.append(f"Divergência Grupo Rateio: PLCD ({l.weight_net}) maior que PL ({l.weight_gross})")
+                                errs.append(f"Divergência Grupo Rateio: Soma PLCD ({total_window_plcd:.2f}) > Soma PL ({total_window_pl:.2f})")
                                 l._temp_errors = errs
 
                 # RULE 2: Missing Partner (SIM Isolado)
