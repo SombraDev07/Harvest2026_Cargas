@@ -61,6 +61,7 @@ class AnalysisStatus(BaseModel):
 class RegisteredLoadCreate(BaseModel):
     visit_code: str
     load_identifier: str
+    error_type: Optional[str] = None
     column_name: str
     user_name: str
     reason: str

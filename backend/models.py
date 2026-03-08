@@ -56,6 +56,7 @@ class RegisteredLoad(Base):
     id = Column(Integer, primary_key=True, index=True)
     visit_code = Column(String, index=True) # COD
     load_identifier = Column(String, index=True) # ID
+    error_type = Column(String, index=True, nullable=True) # e.g., 'duplicado', 'placa'
     column_name = Column(String, index=True) # Column where error was found (formerly table_name)
     user_name = Column(String) # USUÁRIO
     reason = Column(String) # MOTIVO

@@ -62,13 +62,24 @@ def get_registered_loads(db: Session = Depends(get_db)):
 
 @app.post("/registered-loads", response_model=schemas.RegisteredLoadResponse)
 def register_load(load: schemas.RegisteredLoadCreate, db: Session = Depends(get_db)):
-    # Check if already registered
-    existing = db.query(models.RegisteredLoad).filter(models.RegisteredLoad.load_identifier == load.load_identifier).first()
+    # Check if already registered for THIS specific error type
+    existing = db.query(models.RegisteredLoad).filter(
+        models.RegisteredLoad.load_identifier == load.load_identifier,
+        models.RegisteredLoad.error_type == load.error_type
+    ).first()
+    
     if existing:
         return existing
     
     db_load = models.RegisteredLoad(**load.model_dump())
     db.add(db_load)
+    
+    # Granular cleanup: only remove THIS error type from the ledger
+    db.query(models.ErrorLedger).filter(
+        models.ErrorLedger.load_identifier == load.load_identifier,
+        models.ErrorLedger.error_type == load.error_type
+    ).delete()
+    
     db.commit()
     db.refresh(db_load)
     return db_load
@@ -485,6 +496,7 @@ async def import_registered_loads(file: UploadFile = File(...), db: Session = De
             new_records.append(models.RegisteredLoad(
                 visit_code=str(row.get(col_map['COD'] or 'N/A')).strip() if col_map['COD'] else 'N/A',
                 load_identifier=l_id,
+                error_type=None, # Bulk import usually marks ID as generically solved
                 column_name="IMPORTAÇÃO", 
                 user_name="IMPORTAÇÃO",
                 reason=str(row.get(col_map['MOTIVO'] or 'Importação em massa')).strip() if col_map['MOTIVO'] else 'Importação em massa'

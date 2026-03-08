@@ -121,6 +121,7 @@ function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[
       await axios.post(`${API_BASE_URL}/registered-loads`, {
         visit_code: item.visit_code || 'N/A',
         load_identifier: item.load_identifier,
+        error_type: rule.statsKey,
         column_name: rule.name,
         user_name: localStorage.getItem("harvest_user_name") || "Sistema",
         reason: reason
