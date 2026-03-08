@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
 import models
-from .rules.romaneio import validate_romaneio_context
-from .rules.individual import validate_individual_rules
-from .rules.rateio import validate_rateio_groups
+from rules.romaneio import validate_romaneio_context
+from rules.individual import validate_individual_rules
+from rules.rateio import validate_rateio_groups
 
 def validate_load(db: Session, load: models.Load):
     """Orchestrates individual validations and sets status."""
