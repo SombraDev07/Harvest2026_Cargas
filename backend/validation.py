@@ -3,6 +3,7 @@ import models
 from rules.romaneio import validate_romaneio_context
 from rules.individual import validate_individual_rules
 from rules.rateio import validate_rateio_groups
+from rules.utils import parse_time_minutes
 
 def validate_load(db: Session, load: models.Load):
     """Orchestrates individual validations and sets status."""
@@ -66,7 +67,7 @@ def run_batch_validation(db: Session, district: str = None, limit: int = 1000000
         for vcode, group in visit_groups.items():
             if vcode != "N/A":
                 # Ensure the group is sorted by time for context rules
-                group.sort(key=lambda x: validation.parse_time_minutes(x.load_time))
+                group.sort(key=lambda x: parse_time_minutes(x.load_time))
                 validate_romaneio_context(group)
                 validate_rateio_groups(group)
         
