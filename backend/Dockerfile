@@ -18,5 +18,5 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
-# Command to run uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Command to run uvicorn with increased timeout for large file processing
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "300"]
