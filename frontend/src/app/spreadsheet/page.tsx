@@ -62,13 +62,18 @@ export default function SpreadsheetPage() {
 
     try {
       const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
-        params: { wipe: shouldWipe }
+        params: { wipe: shouldWipe },
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000 // 5 minutes timeout for large files
       });
       setUploadResult(response.data);
     } catch (error: any) {
-      console.error("Upload failed", error);
+      console.error("Upload detail:", error);
       const detail = error.response?.data?.detail;
-      alert(`Falha no processamento: ${detail || "Verifique o formato do arquivo."}`);
+      const status = error.response?.status;
+      const networkError = !error.response ? "Sem resposta do servidor (Erro de Rede/CORS/Timeout)" : "";
+      
+      alert(`FALHA NO UPLOAD:\nStatus: ${status || 'N/A'}\nDetalhe Backend: ${detail || 'Nenhum'}\n${networkError}\n\nPor favor, verifique se a URL da API está correta: ${API_BASE_URL}`);
     } finally {
       setIsUploading(false);
     }
