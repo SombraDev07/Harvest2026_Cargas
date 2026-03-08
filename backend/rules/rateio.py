@@ -52,16 +52,28 @@ def validate_rateio_groups(loads: list):
             
             unique_techs = list(set(l.technology for l in sub if l.technology != "N/A"))
             
-            # RULE 1: PLCD Integrity
-            if count_sim > 0 and total_plcd > (total_pl + 1): 
+            # RULE 1: PLCD Integrity (Physical Constraint)
+            # Legitimate Rateio: Max(Gross) must cover Sum(Net)
+            reference_gross = max(l.weight_gross for l in sub) if sub else 0
+            
+            if count_sim > 0 and total_plcd > (reference_gross + 1): 
                 for l in sub:
                     errs = getattr(l, "_temp_errors", [])
-                    errs.append(f"Divergência Grupo Rateio: Total PLCD ({total_plcd:.2f}) > Peso ({total_pl:.2f})")
+                    errs.append(f"Divergência Grupo Rateio: Total PLCD ({total_plcd:.2f}) excede Peso Bruto do caminhão ({reference_gross:.2f})")
                     l._temp_errors = errs
-            elif count_sim >= 2 and abs(total_pl - total_plcd) <= 10:
+            
+            # RULE: Global Capacity (Single Truck Limit)
+            if total_plcd > 52000:
                 for l in sub:
                     errs = getattr(l, "_temp_errors", [])
-                    errs.append(f"Alerta Rateio: Perda suspeita de apenas 10kg no grupo (Total: {total_pl:.2f})")
+                    errs.append(f"Alerta Capacidade: Soma do grupo ({total_plcd:.2f}kg) excede o limite físico do transporte (52k kg)")
+                    l._temp_errors = errs
+
+            # Alerta Suspeito: Se marcou 2 SIM e o total bate quase exato (ex: clone sem desconto)
+            elif count_sim >= 2 and abs(reference_gross - total_plcd) <= 10:
+                for l in sub:
+                    errs = getattr(l, "_temp_errors", [])
+                    errs.append(f"Alerta Rateio: Perda suspeita de apenas 10kg no grupo (Total: {reference_gross:.2f})")
                     l._temp_errors = errs
 
             # RULE 2: Missing Partner

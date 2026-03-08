@@ -37,16 +37,22 @@ def validate_romaneio_context(loads: list):
         })
         
         # Rule 1 (Duplicates)
+        # We respect user feedback: if it's SIM, the romaneio number CAN be duplicated.
         if doc_counts[str(load.doc_number)] > 1 and str(load.rateio).upper() == "NÃO":
             errs = getattr(load, "_temp_errors", [])
             errs.append(f"Romaneio duplicado nesta visita")
             load._temp_errors = errs
             
-        # New Rule (Peso Duplicado)
+        # New Rule (Clone Detection / Peso Duplicado)
+        # If weights are identical, it's a clone even if marked as SIM.
         is_dup_gross = gross_counts[load.weight_gross] > 1 if load.weight_gross > 10 else False
         is_dup_net = net_counts[load.weight_net] > 1 if load.weight_net > 10 else False
         
-        if is_dup_gross or is_dup_net:
+        if is_dup_gross and is_dup_net:
+            errs = getattr(load, "_temp_errors", [])
+            errs.append(f"Alerta Clone: Pesos Bruto ({load.weight_gross:.2f}) e Líquido ({load.weight_net:.2f}) idênticos no grupo")
+            load._temp_errors = errs
+        elif (is_dup_gross or is_dup_net) and str(load.rateio).upper() == "NÃO":
             errs = getattr(load, "_temp_errors", [])
             dup_val = load.weight_gross if is_dup_gross else load.weight_net
             errs.append(f"Pesos duplicados (Mesma Visita): Valor {dup_val:.2f} se repete")

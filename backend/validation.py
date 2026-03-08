@@ -90,6 +90,8 @@ def run_batch_validation(db: Session, district: str = None, limit: int = 1000000
                 e_type = "generic"
                 if "fora do padrão" in msg: e_type = "documento"
                 elif "Divergência Grupo Rateio" in msg: e_type = "rateio_peso"
+                elif "Alerta Capacidade" in msg: e_type = "peso_limite"
+                elif "Alerta Clone" in msg: e_type = "rateio_parceiro"
                 elif "sem parceiro" in msg: e_type = "rateio_parceiro"
                 elif "Regra Rateio 3" in msg: e_type = "rateio_tech"
                 elif "Possível Rateio" in msg: e_type = "rateio_possivel"
