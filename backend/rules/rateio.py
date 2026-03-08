@@ -52,7 +52,15 @@ def validate_rateio_groups(loads: list):
                 
                 unique_techs = list(set(l.technology for l in sub if l.technology != "N/A"))
                 
-                # ... [PLCD Integrity & Global Capacity rules omitted for brevity but preserved] ...
+                # RULE 1: PLCD Integrity
+                # Logic: If marked SIM, PLCD (Peso Líquido c/ Desconto) cannot be > PL (Peso Líquido)
+                if count_sim >= 1:
+                    for l in sub:
+                        if str(l.rateio).upper() == "SIM":
+                            if l.weight_net > l.weight_gross:
+                                errs = getattr(l, "_temp_errors", [])
+                                errs.append(f"Divergência Grupo Rateio: PLCD ({l.weight_net}) maior que PL ({l.weight_gross})")
+                                l._temp_errors = errs
 
                 # RULE 2: Missing Partner (SIM Isolado)
                 # Logic: Marked SIM, but no other load with same plate/tech in 50min
