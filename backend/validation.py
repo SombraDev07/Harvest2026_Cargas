@@ -20,60 +20,68 @@ def validate_load(db: Session, load: models.Load):
 def run_batch_validation(db: Session, district: str = None, limit: int = 1000000):
     """
     Main orchestration engine.
-    Groups loads by visit and plate to apply contextual rules first,
-    then runs individual checks.
+    Groups loads by VISIT CODE to ensure contextual rules (Rateio/Romaneio) 
+    have full visibility of group partners, preventing false positives.
     """
-    query = db.query(models.Load.id).filter(models.Load.status.in_(["pending", "error"]))
+    # 1. Identify WHICH visits need auditing (those with pending or error loads)
+    query = db.query(models.Load.visit_code).filter(models.Load.status.in_(["pending", "error"]))
     if district:
         query = query.filter(models.Load.district == district)
     
-    pending_ids = [r[0] for r in query.order_by(models.Load.id.desc()).limit(limit).all()]
-    total = len(pending_ids)
+    # We use a set to get unique visit codes that need attention
+    visits_to_audit = [r[0] for r in query.distinct().limit(limit).all()]
+    total_batch_visits = len(visits_to_audit)
     
     results = {"success": 0, "error": 0}
-    if not total: return results
+    if not total_batch_visits: return results
 
-    print(f"--- [MODULAR ENGINE] Starting Validation: {total} loads ---")
+    print(f"--- [GROUP ENGINE] Auditing {total_batch_visits} unique visits ---")
 
-    # Move registered (ID, ErrorType) pairs outside loop for performance
+    # Suppression map (ID + ErrorType) for O(1) lookup
     registered_pairs = db.query(models.RegisteredLoad.load_identifier, models.RegisteredLoad.error_type).all()
-    # Map for O(1) lookup: load_id -> set of error_types to suppress
     suppression_map = {}
     for l_id, e_type in registered_pairs:
         if l_id not in suppression_map: suppression_map[l_id] = set()
         suppression_map[l_id].add(e_type)
     
-    chunk_size = 1000
-    for i in range(0, total, chunk_size):
-        chunk_ids = pending_ids[i : i + chunk_size]
+    chunk_size = 500 # Slightly smaller chunks because we fetch ALL loads per visit
+    for i in range(0, total_batch_visits, chunk_size):
+        chunk_visit_codes = visits_to_audit[i : i + chunk_size]
         
-        loads = db.query(models.Load).filter(models.Load.id.in_(chunk_ids)).all()
+        # 2. Fetch ALL loads for these visits (even if already validated) to ensure context
+        # This is the "Full Visibility" key fix.
+        all_loads_in_chunk = db.query(models.Load).filter(models.Load.visit_code.in_(chunk_visit_codes)).all()
         
-        # Reset flags & errors
-        for l in loads: l._temp_errors = []
+        # Reset temp errors for everyone in this chunk
+        for l in all_loads_in_chunk: l._temp_errors = []
         
-        # 1. Group-based Rules (Visit level)
-        visits = {}
-        for l in loads:
+        # Group by visit for rule application
+        visit_groups = {}
+        for l in all_loads_in_chunk:
             vcode = str(l.visit_code or "N/A").strip()
-            if vcode not in visits: visits[vcode] = []
-            visits[vcode].append(l)
+            if vcode not in visit_groups: visit_groups[vcode] = []
+            visit_groups[vcode].append(l)
         
-        for vcode, group in visits.items():
+        # 3. Apply Group-based Rules (Visit level)
+        for vcode, group in visit_groups.items():
             if vcode != "N/A":
                 validate_romaneio_context(group)
                 validate_rateio_groups(group)
         
-        # 2. Individual Rules & Persistance
+        # 4. Individual Rules & Persistance
         all_new_ledger_entries = []
-        chunk_identifiers = [l.load_identifier for l in loads]
+        # We only want to update/delete from ledger for loads that were in our audit target visits
+        chunk_identifiers = [l.load_identifier for l in all_loads_in_chunk]
         db.query(models.ErrorLedger).filter(models.ErrorLedger.load_identifier.in_(chunk_identifiers)).delete(synchronize_session=False)
 
-        for load in loads:
-            # Run all validations
+        for load in all_loads_in_chunk:
+            # Skip if load is irrelevant (shouldn't happen with our query but good for safety)
+            if not load.load_identifier: continue
+
+            # Run individual rules
             validate_individual_rules(load)
             
-            # Filter matches against suppression_map
+            # Filter matches against suppression
             final_errors = []
             suppressed_list = suppression_map.get(load.load_identifier, set())
             
@@ -94,14 +102,12 @@ def run_batch_validation(db: Session, district: str = None, limit: int = 1000000
                 elif "fictício" in msg: e_type = "peso_ficticio"
                 elif "Desconto" in msg: e_type = "desconto"
                 
-                # Check if this ID + THIS Type is suppressed
-                # Or if the ID has a generic suppression (error_type is None)
                 if e_type in suppressed_list or None in suppressed_list:
                     continue
                 
                 final_errors.append((e_type, msg))
 
-            # Update Load object state
+            # Update Load status
             if not final_errors:
                 load.status = "validated"
                 load.error_message = None
@@ -122,7 +128,7 @@ def run_batch_validation(db: Session, district: str = None, limit: int = 1000000
             db.bulk_save_objects(all_new_ledger_entries)
             
         db.commit()
-        print(f"--- [PROGRESS] Validated {min(i + chunk_size, total)}/{total} loads... ---")
+        print(f"--- [PROGRESS] Validated {min(i + chunk_size, total_batch_visits)}/{total_batch_visits} visits... ---")
               
-    print(f"--- MODULES DONE: {results['success']} OK, {results['error']} Errors ---")
+    print(f"--- GROUP ENGINE DONE: {results['success']} OK, {results['error']} Errors ---")
     return results
