@@ -66,14 +66,18 @@ export default function SpreadsheetPage() {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 300000 // 5 minutes timeout for large files
       });
-      setUploadResult(response.data);
     } catch (error: any) {
       console.error("Upload detail:", error);
       const detail = error.response?.data?.detail;
       const status = error.response?.status;
-      const networkError = !error.response ? "Sem resposta do servidor (Erro de Rede/CORS/Timeout)" : "";
+      const networkError = !error.response ? "SEM RESPOSTA DO SERVIDOR (CORS ou Porta 8000 bloqueada no AWS)" : "";
       
-      alert(`FALHA NO UPLOAD:\nStatus: ${status || 'N/A'}\nDetalhe Backend: ${detail || 'Nenhum'}\n${networkError}\n\nPor favor, verifique se a URL da API está correta: ${API_BASE_URL}`);
+      alert(`🚨 FALHA DE CONEXÃO NO UPLOAD:\n\n` +
+            `• Status HTTP: ${status || 'N/A'}\n` +
+            `• Erro de Rede: ${networkError || 'Não'}\n` +
+            `• URL que o navegador tentou: ${API_BASE_URL}/upload\n` +
+            `• Detalhe Backend: ${detail || 'Nenhum'}\n\n` +
+            `DICA: Verifique se a porta 8000 está liberada no seu AWS Security Group.`);
     } finally {
       setIsUploading(false);
     }
