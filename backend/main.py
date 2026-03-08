@@ -349,60 +349,38 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
     try:
         # User specified: Line 2 (index 1), Col I (index 8), Col N (index 13)
         df = pd.read_excel(buffer, header=1) if file.filename.endswith('.xlsx') else pd.read_csv(buffer)
-            
-        cols = df.columns.tolist()
-
-        # Strict Index Mapping (Line 2 is headers)
-        # I = index 8 (DISTRITO), N = index 13 (ID)
-        # Weights: S = 18, T = 19
-        # Plate: X = 23, Product: V = 21
         
-        # Exact Mapping as per user provided column list
-        import unicodedata
+        # Clean column names to be flexible (Remove accents, uppercase, strip)
+        # This makes column detection much more robust
+        df.columns = [normalize_str(c).upper().strip() for c in df.columns]
+        normalized_cols = list(df.columns)
+        cols = normalized_cols # Use normalized as base for index mapping etc.
+
+        # Strict Index Mapping (Relative to df.columns)
+        # ... Mapping logic updated below to use normalized matches ...
         
-        def normalize_str(s):
-            if not s: return ""
-            return "".join(c for c in unicodedata.normalize('NFD', str(s))
-                         if unicodedata.category(c) != 'Mn').lower().strip()
-
-        normalized_cols = [normalize_str(c) for c in cols]
-
-        def safe_get_col(idx, default):
-            return cols[idx] if len(cols) > idx else default
-
-        def clean_val(val):
-            if pd.isna(val) or val == "" or str(val).lower() == "nan": return "N/A"
-            return str(val).strip()
-
-        def find_column(names, default_idx):
-            # 1. Try exact normalized match
+        def find_column_robust(names, default_idx):
             for target in names:
-                norm_target = normalize_str(target)
+                norm_target = normalize_str(target).upper()
                 if norm_target in normalized_cols:
-                    return cols[normalized_cols.index(norm_target)]
-            
-            # 2. Try fragment match
-            for target in names:
-                norm_target = normalize_str(target)
-                for i, col_name in enumerate(normalized_cols):
-                    if norm_target in col_name:
-                        return cols[i]
-            
-            # 3. Fallback to index if safe
-            return safe_get_col(default_idx, names[0])
+                    return normalized_cols[normalized_cols.index(norm_target)]
+            # Fallback to index
+            if len(normalized_cols) > default_idx: return normalized_cols[default_idx]
+            return names[0]
 
-        col_id = find_column(["ID"], 13)
-        col_district = find_column(["DISTRITO FILIAL", "DISTRITO"], 8)
-        col_weight_gross = find_column(["PESO LÍQUIDO (KG)", "PESO LÍQUIDO"], 18)
-        col_weight_net = find_column(["PESO LÍQUIDO C/ DESCONTO (KG)", "PESO LIQUIDO C/ DESCONTO", "PLCD"], 19)
-        col_plate = find_column(["PLACA DO CAMINHÃO", "PLACA"], 23)
-        col_product = find_column(["PRODUTOR"], 21)
-        col_visit = find_column(["CÓDIGO VISITA", "VISITA", "COD"], 0)
-        col_doc = find_column(["NÚMERO DOCUMENTO", "DOCUMENTO", "ROMANEIO"], 17)
-        col_city = find_column(["CIDADE FILIAL", "CIDADE"], 10)
-        col_cnpj_filial = find_column(["CNPJ FILIAL PDR", "CNPJ FILIAL", "CNPJ/FILIAL"], 12)
-        col_rateio = find_column(["rateio"], 31)
-        col_technology = find_column(["RESULTADO DO TESTE ACOMPANHADO", "TECNOLOGIA", "TECH", "SISTEMA"], 18) # Usually around index 18-20
+        col_id = find_column_robust(["ID"], 13)
+        col_district = find_column_robust(["DISTRITO FILIAL", "DISTRITO"], 8)
+        col_weight_gross = find_column_robust(["PESO LÍQUIDO", "PESO LIQUIDO"], 18)
+        col_weight_net = find_column_robust(["PESO LÍQUIDO C/ DESCONTO", "PESO LIQUIDO C/ DESCONTO", "PLCD"], 19)
+        col_plate = find_column_robust(["PLACA DO CAMINHÃO", "PLACA"], 23)
+        col_product = find_column_robust(["PRODUTOR"], 21)
+        col_visit = find_column_robust(["CÓDIGO VISITA", "VISITA", "COD"], 0)
+        col_doc = find_column_robust(["NÚMERO DOCUMENTO", "DOCUMENTO", "ROMANEIO"], 17)
+        col_cnpj_filial = find_column_robust(["CNPJ FILIAL PDR", "CNPJ FILIAL", "CNPJ/FILIAL"], 12)
+        col_rateio = find_column_robust(["RATEIO"], 31)
+        col_technology = find_column_robust(["RESULTADO DO TESTE ACOMPANHADO", "TECNOLOGIA", "TECH", "SISTEMA"], 20)
+        col_city = find_column_robust(["CIDADE FILIAL", "CIDADE"], 10)
+        col_load_time = find_column_robust(["HORÁRIO", "HORA", "HORA DA CARGA"], 15)
 
         # Unique districts for the frontend filter
         unique_districts = df[col_district].dropna().unique().astype(str).tolist() if col_district in df.columns else []
@@ -410,21 +388,9 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
         imported_count = 0
         updated_count = 0
         
-        # Helper for ultra-defensive numeric conversion
-        def to_float(val):
-            if pd.isna(val) or val == "": return 0.0
-            try:
-                if isinstance(val, (int, float)): return float(val)
-                # Handle BR format: 41.060 or 41.060,00
-                s = str(val).strip().replace('.', '').replace(',', '.')
-                return float(s)
-            except: 
-                return 0.0
-
-        # Optimization: Fetch all existing identifiers once to avoid N queries
+        # Optimization: Fetch all existing identifiers once
         existing_loads_map = {l.load_identifier: l for l in db.query(models.Load).all()}
         
-        chunk_updates = []
         for _, row in df.iterrows():
             raw_id = row.get(col_id)
             if raw_id is None or pd.isna(raw_id) or str(raw_id).strip() == "":
@@ -436,7 +402,7 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
             if not load:
                 load = models.Load(load_identifier=load_id)
                 db.add(load)
-                existing_loads_map[load_id] = load # Track new one too
+                existing_loads_map[load_id] = load
                 imported_count += 1
             else:
                 updated_count += 1
@@ -449,21 +415,24 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
             load.doc_number = clean_val(row.get(col_doc))
             load.city = clean_val(row.get(col_city))
             load.cnpj_filial = clean_val(row.get(col_cnpj_filial))
-            load.rateio = clean_val(row.get(col_rateio)) or "NÃO"
+            load.rateio = clean_val(row.get(col_rateio))
             load.technology = clean_val(row.get(col_technology))
+            load.load_time = clean_val(row.get(col_load_time))
             load.weight_gross = to_float(row.get(col_weight_gross))
             load.weight_net = to_float(row.get(col_weight_net))
-            load.status = "pending" # Reset to re-validate
-            load.updated_at = models.func.now() # Mark as newly arrived/updated now
+            load.status = "pending" 
+            load.updated_at = models.func.now()
                 
-            # Flush periodically
             if (imported_count + updated_count) % 2000 == 0:
-                db.flush() # Send to DB but don't commit yet to keep transaction open
+                db.flush()
         
         db.commit()
         
-        # Immediate Validation for the first 100,000 pending loads
-        validation.run_batch_validation(db, limit=100000)
+        # Immediate Validation (Non-blocking crash)
+        try:
+            validation.run_batch_validation(db, limit=100000)
+        except Exception as audit_err:
+            print(f"AUTO-AUDIT WARNING: {audit_err}")
         
         return {
             "message": "Cargas processadas e analisadas com sucesso!",

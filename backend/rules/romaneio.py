@@ -1,5 +1,5 @@
 from collections import Counter
-from rules.utils import extract_rom_parts
+from rules.utils import extract_rom_parts, parse_time_minutes
 
 def validate_romaneio_context(loads: list):
     """
@@ -65,7 +65,7 @@ def validate_romaneio_context(loads: list):
     mode_prefix = Counter(prefixes).most_common(1)[0][0] if prefixes else ""
 
     # Sort for Jump Analysis and Window Analysis
-    rom_data.sort(key=lambda x: validation.parse_time_minutes(x["load"].load_time))
+    rom_data.sort(key=lambda x: parse_time_minutes(x["load"].load_time))
 
     for i, r in enumerate(rom_data):
         load = r["load"]
@@ -76,7 +76,7 @@ def validate_romaneio_context(loads: list):
         if str(load.rateio).upper() == "NÃO":
             my_plate = str(load.truck_plate or "").strip().upper()
             my_tech = str(load.technology or "").strip()
-            my_t = validation.parse_time_minutes(load.load_time)
+            my_t = parse_time_minutes(load.load_time)
             
             # Check neighbors in the sorted list
             for offset in [-1, 1]:
@@ -85,7 +85,7 @@ def validate_romaneio_context(loads: list):
                     neighbor = rom_data[idx]["load"]
                     n_plate = str(neighbor.truck_plate or "").strip().upper()
                     n_tech = str(neighbor.technology or "").strip()
-                    n_t = validation.parse_time_minutes(neighbor.load_time)
+                    n_t = parse_time_minutes(neighbor.load_time)
                     
                     if (my_plate == n_plate and my_tech == n_tech and 
                         my_t >= 0 and n_t >= 0 and abs(my_t - n_t) <= 20):
