@@ -65,19 +65,18 @@ def run_batch_validation(db: Session, district: str = None, limit: int = 1000000
         # 3. Apply Group-based Rules (Visit level)
         for vcode, group in visit_groups.items():
             if vcode != "N/A":
+                # Ensure the group is sorted by time for context rules
+                group.sort(key=lambda x: validation.parse_time_minutes(x.load_time))
                 validate_romaneio_context(group)
                 validate_rateio_groups(group)
         
         # 4. Individual Rules & Persistance
         all_new_ledger_entries = []
-        # We only want to update/delete from ledger for loads that were in our audit target visits
-        chunk_identifiers = [l.load_identifier for l in all_loads_in_chunk]
+        # We only want to update/delete from ledger for loads that were in our chunk
+        chunk_identifiers = [l.load_identifier for l in all_loads_in_chunk if l.load_identifier]
         db.query(models.ErrorLedger).filter(models.ErrorLedger.load_identifier.in_(chunk_identifiers)).delete(synchronize_session=False)
 
         for load in all_loads_in_chunk:
-            # Skip if load is irrelevant (shouldn't happen with our query but good for safety)
-            if not load.load_identifier: continue
-
             # Run individual rules
             validate_individual_rules(load)
             

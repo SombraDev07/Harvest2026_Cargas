@@ -1,4 +1,4 @@
-from rules.utils import parse_time_minutes
+from rules.utils import parse_time_minutes, normalize_str
 
 def validate_rateio_groups(loads: list):
     """
@@ -90,9 +90,9 @@ def validate_rateio_groups(loads: list):
                     errs.append(f"Regra Rateio 3: Mais de uma tecnologia ({', '.join(unique_techs)}) no mesmo grupo")
                     l._temp_errors = errs
 
-            # NEW RULE: Rateio Same Producer
+            # NEW RULE: Rateio Same Producer (Normalized)
             if count_sim >= 2:
-                producers_sim = [l.product for l in sub if str(l.rateio).upper() == "SIM"]
+                producers_sim = [normalize_str(l.product) for l in sub if str(l.rateio).upper() == "SIM"]
                 if len(producers_sim) > 1 and len(set(producers_sim)) < len(producers_sim):
                     for l in sub:
                         if str(l.rateio).upper() == "SIM":

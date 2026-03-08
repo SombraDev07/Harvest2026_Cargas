@@ -1,4 +1,11 @@
 import re
+import unicodedata
+
+def normalize_str(s):
+    """Normalize string: remove accents, lowercase, strip spaces."""
+    if not s or s == "N/A": return ""
+    return "".join(c for c in unicodedata.normalize('NFD', str(s))
+                 if unicodedata.category(c) != 'Mn').lower().strip()
 
 def extract_rom_parts(rom_str):
     """Extract numeric part and prefix from romaneio string."""
