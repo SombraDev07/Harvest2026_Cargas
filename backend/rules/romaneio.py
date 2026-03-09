@@ -10,22 +10,27 @@ def validate_romaneio_context(loads: list):
     
     # 1. Identify predominant Length and Prefix (Modes) for Rule 2
     rom_data = []
-    # For Rule 1: Find duplicates within this group
-    doc_counts = Counter()
+    from collections import defaultdict
+    # Track which plates use each romaneio number
+    doc_usage = defaultdict(set)
     pair_counts = Counter()
     
     for l in loads:
-        rateio_str = str(l.rateio or "NÃO").strip().upper()
-        is_rateio_no = rateio_str in ["NÃO", "NAO"]
+        plate = str(l.truck_plate or "N/A").strip().upper()
+        if l.doc_number != "N/A":
+            doc_usage[str(l.doc_number)].add(plate)
         
-        if is_rateio_no and l.doc_number != "N/A":
-            doc_counts[str(l.doc_number)] += 1
-        
-        # New Rule: Peso Duplicado (within same visit)
-        # We count frequency of the PAIR (PL + PLCD) across ALL loads
+        # [Existing pair logic for weights remains here]
         if l.weight_gross > 0.1 and l.weight_net > 0.1:
             pair_key = (round(l.weight_gross, 2), round(l.weight_net, 2))
             pair_counts[pair_key] += 1
+
+    # For Rule 1: Standard count for non-rateio internal duplication
+    non_rateio_counts = Counter()
+    for l in loads:
+        rateio_str = str(l.rateio or "NÃO").strip().upper()
+        if (rateio_str in ["NÃO", "NAO"]) and l.doc_number != "N/A":
+            non_rateio_counts[str(l.doc_number)] += 1
 
     for load in loads:
         doc = str(load.doc_number or "")
@@ -40,12 +45,21 @@ def validate_romaneio_context(loads: list):
         
         rateio_str = str(load.rateio or "NÃO").strip().upper()
         is_rateio_no = rateio_str in ["NÃO", "NAO"]
+        plate = str(load.truck_plate or "N/A").strip().upper()
 
-        # Rule 1 (Duplicates)
-        if is_rateio_no and doc_counts[str(load.doc_number)] > 1:
+        # Rule 1 (Duplicates) - For NON-RATEIO
+        if is_rateio_no and non_rateio_counts[str(load.doc_number)] > 1:
             errs = getattr(load, "_temp_errors", [])
             errs.append(f"Romaneio duplicado nesta visita")
             load._temp_errors = errs
+
+        # Rule 2 (Out of Pattern - Cross Plate Duplication) - For RATEIO
+        if not is_rateio_no and load.doc_number != "N/A":
+            # If this romaneio is used by MORE THAN ONE unique plate in this visit
+            if len(doc_usage[str(load.doc_number)]) > 1:
+                errs = getattr(load, "_temp_errors", [])
+                errs.append(f"Romaneio fora do padrão: Mesma numeração usada em placas diferentes")
+                load._temp_errors = errs
             
         # Pesos Duplicados (Mesma Visita) - REFINED
         # Requirement: Both weights (PL and PLCD) repeat in another load, regardless of rateio
