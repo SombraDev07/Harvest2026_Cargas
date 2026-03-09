@@ -34,7 +34,10 @@ export default function SpreadsheetPage() {
   const [selectedDistrict, setSelectedDistrict] = useState<string>("");
   const [validationMessage, setValidationMessage] = useState<string>("");
   const [shouldWipe, setShouldWipe] = useState(true);
+  const [isRegisteringMemory, setIsRegisteringMemory] = useState(false);
+  const [memoryMessage, setMemoryMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const memoryInputRef = useRef<HTMLInputElement>(null);
 
   const handleSystemReset = async () => {
     if (!confirm("⚠️ ATENÇÃO: Isso apagará todas as cargas, erros e análises atuais. O banco de IDs Registrados será preservado. Deseja continuar?")) return;
@@ -46,6 +49,30 @@ export default function SpreadsheetPage() {
       window.location.reload();
     } catch (error) {
       alert("Erro ao reiniciar sistema.");
+    }
+  };
+
+  const handleRegisterMemory = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsRegisteringMemory(true);
+    setMemoryMessage("");
+    
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await axios.post(`${API_BASE_URL}/loads/register-memory`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000
+      });
+      setMemoryMessage(response.data.message);
+    } catch (error: any) {
+      console.error("Memory registration failed", error);
+      alert("Falha ao registrar memória: " + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsRegisteringMemory(false);
     }
   };
 
@@ -66,6 +93,7 @@ export default function SpreadsheetPage() {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 300000 // 5 minutes timeout for large files
       });
+      setUploadResult(response.data);
     } catch (error: any) {
       console.error("Upload detail:", error);
       const detail = error.response?.data?.detail;
@@ -291,20 +319,52 @@ export default function SpreadsheetPage() {
               </div>
            </div>
            
-           <div className="p-8 rounded-[2rem] bg-gradient-to-br from-blue-600/10 to-indigo-600/10 border border-white/5">
-              <p className="text-[10px] font-black text-blue-400 uppercase mb-4 tracking-[.3em]">Carga de Trabalho</p>
-              <div className="space-y-2">
-                 <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-gray-400 uppercase">Processador</span>
-                    <span className="text-white">82%</span>
-                 </div>
-                 <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                    <motion.div 
-                      className="h-full bg-blue-500" 
-                      initial={{ width: 0 }}
-                      animate={{ width: '82%' }}
-                    />
-                 </div>
+           <div className="p-8 rounded-[2rem] bg-gradient-to-br from-blue-600/10 to-indigo-600/10 border border-white/5 space-y-6">
+              <div>
+                <p className="text-[10px] font-black text-blue-400 uppercase mb-4 tracking-[.3em]">Carga de Trabalho</p>
+                <div className="space-y-2">
+                   <div className="flex justify-between text-xs font-bold mb-1">
+                      <span className="text-gray-400 uppercase">Processador</span>
+                      <span className="text-white">82%</span>
+                   </div>
+                   <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                      <motion.div 
+                        className="h-full bg-blue-500" 
+                        initial={{ width: 0 }}
+                        animate={{ width: '82%' }}
+                      />
+                   </div>
+                </div>
+              </div>
+
+              <div className="pt-6 border-t border-white/5 space-y-4">
+                <div className="flex items-center gap-2 text-blue-400">
+                  <Clock size={16} />
+                  <h4 className="text-[10px] font-black uppercase tracking-widest">Registro de Memória RPA</h4>
+                </div>
+                <p className="text-[10px] text-gray-500 leading-relaxed font-bold">
+                  Upe aqui as planilhas de ONTEM ou anteriores para gravar os IDs no banco de dados. 
+                  IDs registrados aqui <span className="text-white">NÃO</span> irão para a Fila de Urgência em futuros uploads.
+                </p>
+                <input 
+                  type="file" 
+                  ref={memoryInputRef} 
+                  className="hidden" 
+                  onChange={handleRegisterMemory} 
+                  accept=".csv,.xlsx" 
+                />
+                <button 
+                  onClick={() => memoryInputRef.current?.click()}
+                  disabled={isRegisteringMemory}
+                  className={`w-full py-3 rounded-xl border border-blue-500/30 bg-blue-500/5 text-[10px] font-black uppercase tracking-widest hover:bg-blue-500/10 transition-all
+                    ${isRegisteringMemory ? 'opacity-50 cursor-not-allowed' : ''}
+                  `}
+                >
+                  {isRegisteringMemory ? "Registrando..." : "Registrar IDs da Memória"}
+                </button>
+                {memoryMessage && (
+                  <p className="text-[10px] text-emerald-400 font-bold text-center animate-pulse">{memoryMessage}</p>
+                )}
               </div>
            </div>
         </div>

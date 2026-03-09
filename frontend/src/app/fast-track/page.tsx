@@ -63,7 +63,7 @@ function FastRuleTable({ rule, totalCount }: { rule: typeof RULES[0], totalCount
           params: { 
             status: 'error',
             error_type: rule.statsKey, 
-            recent_only: true, // THE KEY FILTER
+            queue: 'urgent', 
             limit: 200 
           }
         });
@@ -193,6 +193,13 @@ function FastRuleTable({ rule, totalCount }: { rule: typeof RULES[0], totalCount
 export default function FastTrackPage() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isMemorySyncing, setIsMemorySyncing] = useState(false);
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("user");
+    if (savedUser) setUser(JSON.parse(savedUser));
+  }, []);
 
   const fetchStats = async () => {
     try {
@@ -205,6 +212,24 @@ export default function FastTrackPage() {
     }
   };
 
+  const handleMemorySync = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const file = e.target.files[0];
+    const formData = new FormData();
+    formData.append("file", file);
+
+    setIsMemorySyncing(true);
+    try {
+      const res = await axios.post(`${API_BASE_URL}/loads/register-memory`, formData);
+      alert(res.data.message);
+      fetchStats();
+    } catch (e) {
+      alert("Erro ao sincronizar memória.");
+    } finally {
+      setIsMemorySyncing(false);
+    }
+  };
+
   useEffect(() => {
     fetchStats();
     const interval = setInterval(fetchStats, 10000);
@@ -213,39 +238,56 @@ export default function FastTrackPage() {
 
   return (
     <div className="space-y-10 pb-20">
-      <header className="flex flex-col gap-4 relative">
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 relative">
         <div className="absolute -top-20 -left-20 w-60 h-60 bg-red-600/10 blur-[120px] -z-10 animate-pulse" />
-        <div className="flex items-center gap-3">
-           <div className="p-3 bg-red-600/20 rounded-2xl border border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.3)]">
-              <Zap className="text-red-400 fill-red-400" size={24} />
+        <div className="flex items-center gap-4">
+           <div className="p-4 bg-red-600/20 rounded-3xl border border-red-500/30 shadow-[0_0_25px_rgba(239,68,68,0.2)]">
+              <Zap className="text-red-400 fill-red-400" size={28} />
            </div>
            <div>
               <h2 className="text-4xl font-black tracking-tight text-white uppercase italic">
                 Fila de <span className="text-red-500">Urgência</span> ⚡
               </h2>
-              <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">
-                Monitorando entradas nas últimas 48 horas • Exclusivo para Operação
+              <p className="text-xs text-gray-500 font-bold uppercase tracking-[0.2em] mt-1">
+                Análise de cargas novas • Janela de 72 horas
               </p>
            </div>
         </div>
+
+        {user?.username === "BrunoHarvest2026" && (
+          <div className="flex flex-col gap-2">
+            <span className="text-[9px] font-black text-white/40 uppercase tracking-widest ml-2">Painel Especial - Bruno</span>
+            <label className={`
+              cursor-pointer flex items-center gap-3 px-6 py-3 rounded-2xl border transition-all
+              ${isMemorySyncing ? 'bg-blue-600/20 border-blue-500/30 opacity-50' : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'}
+            `}>
+              <Database size={16} className="text-blue-400" />
+              <div className="flex flex-col">
+                <span className="text-xs font-black text-white uppercase tracking-tighter leading-none">Sincronizar Memória</span>
+                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-tight">Vá para Fila Normal os IDs já existentes</span>
+              </div>
+              <input type="file" className="hidden" accept=".xlsx,.csv" onChange={handleMemorySync} disabled={isMemorySyncing} />
+            </label>
+          </div>
+        )}
       </header>
 
       {/* Urgency Summary Card */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-         <div className="glass p-8 rounded-[2.5rem] border-2 border-red-500/20 bg-red-600/[0.03] flex items-center justify-between col-span-1 md:col-span-2">
+         <div className="glass p-8 rounded-[2.5rem] border-2 border-red-500/20 bg-red-600/[0.03] flex items-center justify-between col-span-1 md:col-span-2 shadow-2xl">
             <div className="flex flex-col gap-1">
-               <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Alerta de Pendências</span>
+               <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Alerta de Pendências de 72h</span>
                <span className="text-5xl font-black text-white tabular-nums tracking-tighter">
                   {loading ? '...' : (stats?.total_recent || 0)}
                </span>
-               <span className="text-gray-400 text-[10px] font-bold uppercase">Cargas recém-chegadas com inconsistência</span>
+               <span className="text-gray-400 text-[10px] font-bold uppercase tracking-tight">Entradas com erro que ainda não estão registradas no histórico</span>
             </div>
             <div className="w-16 h-16 rounded-full border-4 border-red-500/20 border-t-red-500 animate-spin" />
          </div>
          
-         <div className="glass p-8 rounded-[2.5rem] border border-white/5 bg-black/40 flex flex-col justify-center gap-2">
-            <p className="text-[11px] text-gray-500 font-medium leading-relaxed italic">
-              "Esta fila limpa automaticamente após 48h. Foque no que é novo para manter o backlog sob controle."
+         <div className="glass p-8 rounded-[2.5rem] border border-white/5 bg-black/40 flex flex-col justify-center gap-3">
+            <p className="text-[11px] text-gray-400 font-medium leading-relaxed italic border-l-2 border-red-500/50 pl-4">
+              "Esta fila mostra apenas o que é DE FATO NOVO para o servidor. Após 72h ou ao sincronizar a memória, as cargas saem daqui."
             </p>
          </div>
       </div>
@@ -262,8 +304,8 @@ export default function FastTrackPage() {
          {stats && stats.total_recent === 0 && !loading && (
            <div className="p-20 text-center glass rounded-[2.5rem] border-dashed border-2 border-white/10 opacity-50">
               <UserCheck size={60} className="mx-auto text-emerald-500 mb-6" />
-              <h3 className="text-2xl font-black text-white uppercase italic">Operação Limpa!</h3>
-              <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">Nenhuma carga nova com erro nas últimas 48h</p>
+              <h3 className="text-2xl font-black text-white uppercase italic">Zero Pendências!</h3>
+              <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">Toda operação nova está validada ou registrada</p>
            </div>
          )}
       </div>

@@ -80,3 +80,13 @@ class OperationTrackingResponse(OperationTrackingCreate):
     timestamp: datetime
     class Config:
         from_attributes = True
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class LoginResponse(BaseModel):
+    id: int
+    username: str
+    role: str
+    token: str # Simulated token for now

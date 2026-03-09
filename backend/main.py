@@ -27,20 +27,62 @@ app.add_middleware(
 def read_root():
     return {"message": "Harvest 2026 API is running"}
 
+@app.on_event("startup")
+def seed_user():
+    db = next(get_db())
+    # Seed admin email as requested
+    user = db.query(models.User).filter(models.User.username == "BrunoHarvest2026@BureauVeritas.com").first()
+    if not user:
+        new_user = models.User(
+            username="BrunoHarvest2026@BureauVeritas.com", 
+            password_hash="ChildrenOfLight123***", 
+            role="admin"
+        )
+        db.add(new_user)
+        db.commit()
+        print("--- [SEED] User BrunoHarvest2026@BureauVeritas.com created ---")
+
+@app.post("/login", response_model=schemas.LoginResponse)
+def login(req: schemas.LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.username == req.username).first()
+    if not user or user.password_hash != req.password:
+        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
+    
+    return schemas.LoginResponse(
+        id=user.id,
+        username=user.username,
+        role=user.role,
+        token="SIMULATED-JWT-TOKEN"
+    )
+
 @app.get("/loads", response_model=List[schemas.LoadResponse])
 def get_loads(
     skip: int = 0, 
     limit: int = 100, 
     status: str = None, 
-    error_type: str = None, # Renamed rule_filter to error_type to match newer frontend
+    error_type: str = None, 
     district: str = None,
-    recent_only: bool = False,
+    queue: str = None, # urgent or normal
     db: Session = Depends(get_db)
 ):
     query = db.query(models.Load)
     
+    # Queue Filtering (72h logic)
+    from datetime import datetime, timedelta
+    threshold_72h = datetime.now() - timedelta(hours=72)
+
+    if queue == "urgent":
+        # must be marked urgent AND arrived less than 72h ago
+        query = query.filter(models.Load.is_urgent == True, models.Load.arrival_at >= threshold_72h)
+    elif queue == "normal":
+        # was NOT marked urgent OR was urgent but has expired (>72h)
+        from sqlalchemy import or_
+        query = query.filter(or_(
+            models.Load.is_urgent == False,
+            models.Load.arrival_at < threshold_72h
+        ))
+
     if error_type:
-        # Join with ErrorLedger to filter by the technical record key (e.g., 'documento')
         query = query.join(models.ErrorLedger, models.Load.load_identifier == models.ErrorLedger.load_identifier)\
                      .filter(models.ErrorLedger.error_type == error_type)
     elif status:
@@ -48,11 +90,6 @@ def get_loads(
         
     if district:
         query = query.filter(models.Load.district == district)
-        
-    if recent_only:
-        from datetime import datetime, timedelta
-        threshold = datetime.now() - timedelta(hours=48)
-        query = query.filter(models.Load.updated_at >= threshold)
         
     loads = query.order_by(models.Load.updated_at.desc()).offset(skip).limit(limit).all()
     return loads
@@ -93,6 +130,44 @@ def delete_registered_load(load_id: int, db: Session = Depends(get_db)):
     db.delete(db_load)
     db.commit()
     return {"message": "Success"}
+
+@app.post("/loads/register-memory")
+def register_historical_ids(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Registers all IDs from a spreadsheet as 'Known' (Memory). These will NOT be urgent on future uploads."""
+    try:
+        contents = file.file.read()
+        df = pd.read_excel(io.BytesIO(contents), engine='openpyxl')
+        
+        # Look for ID column (Col N usually)
+        id_col = None
+        for col in df.columns:
+            if 'ID' in str(col).upper() or 'IDENTIFICADOR' in str(col).upper():
+                id_col = col
+                break
+        
+        if id_col is None:
+            # Fallback if header detection fails (Col 13 is N zero-indexed)
+            if len(df.columns) > 13:
+                id_col = df.columns[13]
+            else:
+                raise HTTPException(status_code=400, detail="Coluna ID não encontrada")
+
+        ids = df[id_col].dropna().astype(str).unique().tolist()
+        
+        count = 0
+        from datetime import datetime
+        for lid in ids:
+            existing = db.query(models.KnownID).filter(models.KnownID.load_identifier == lid).first()
+            if not existing:
+                db.add(models.KnownID(load_identifier=lid, registered_at=datetime.now()))
+                count += 1
+        
+        db.commit()
+        return {"message": f"Memória atualizada: {count} novos IDs registrados", "total_registered": count}
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/analysis/status", response_model=List[schemas.AnalysisStatus])
 def get_analysis_status(db: Session = Depends(get_db)):
@@ -208,13 +283,16 @@ def get_analytics(db: Session = Depends(get_db)):
 @app.get("/analytics/fast-track")
 def get_fast_track_analytics(db: Session = Depends(get_db)):
     from datetime import datetime, timedelta
-    threshold = datetime.now() - timedelta(hours=48)
+    threshold = datetime.now() - timedelta(hours=72)
     
-    # Filter only loads updated in the last 48h
-    recent_loads_query = db.query(models.Load.load_identifier).filter(models.Load.updated_at >= threshold)
+    # Filter only loads marked as URGENT and arrived in the last 72h
+    recent_loads_query = db.query(models.Load.load_identifier).filter(
+        models.Load.is_urgent == True,
+        models.Load.arrival_at >= threshold
+    )
     recent_identifiers = [r[0] for r in recent_loads_query.all()]
     
-    # Error classification counts for RECENT loads only
+    # Error classification counts for URGENT loads only
     rule_counts = {k: 0 for k in [
         "duplicado", "documento", "campos", "placa", "peso_limite", 
         "peso_ficticio", "desconto", "rateio_peso", "rateio_parceiro", 
@@ -423,11 +501,14 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
             if pd.isna(val) or val == "" or str(val).lower() == "nan": return "N/A"
             return str(val).strip()
 
-        # Pre-fetch for UPSERT efficiency
+        # Pre-fetch for UPSERT and Delta logic
         existing_loads_map = {l.load_identifier: l for l in db.query(models.Load).all()}
+        known_ids_set = {ki.load_identifier for ki in db.query(models.KnownID).all()}
         
         imported_count = 0
         updated_count = 0
+        from datetime import datetime
+        now = datetime.now()
         
         unique_districts = []
         if col_district in df.columns:
@@ -440,6 +521,7 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
                 
             load_id = str(raw_id).strip()
             load = existing_loads_map.get(load_id)
+            is_new_id = load_id not in known_ids_set
             
             if not load:
                 load = models.Load(load_identifier=load_id)
@@ -448,6 +530,14 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
                 imported_count += 1
             else:
                 updated_count += 1
+
+            # Delta Logic: Mark as urgent if ID is previously unknown
+            if is_new_id:
+                load.is_urgent = True
+                load.arrival_at = now
+            else:
+                load.is_urgent = False
+                # arrival_at stays as is or can be cleared
 
             # Populate Fields
             load.truck_plate = clean_val(row.get(col_plate))

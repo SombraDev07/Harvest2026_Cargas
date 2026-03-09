@@ -32,13 +32,20 @@ export default function RootLayoutContent({
   const [isAuthenticated, setIsAuthenticated] = React.useState<boolean | null>(null);
 
   React.useEffect(() => {
-    const auth = localStorage.getItem("harvest_authenticated");
-    if (!auth && pathname !== "/login") {
+    const userStr = localStorage.getItem("user");
+    if (!userStr && pathname !== "/login") {
       window.location.href = "/login";
+    } else if (userStr) {
+      setIsAuthenticated(true);
     } else {
-      setIsAuthenticated(!!auth);
+      setIsAuthenticated(false);
     }
   }, [pathname]);
+
+  const handleLogout = () => {
+    localStorage.removeItem("user");
+    window.location.href = "/login";
+  };
 
   const isLoginPage = pathname === "/login";
 
@@ -111,15 +118,19 @@ export default function RootLayoutContent({
             <Settings size={16} />
             CONFIGURAÇÕES
           </button>
-          <div className="p-4 glass rounded-2xl mt-4">
-             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Sessão Atual</p>
+          <div className="p-4 glass rounded-2xl mt-4 relative group">
+             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 px-1">Sessão Ativa</p>
              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-xs font-bold ring-1 ring-blue-500/30">
-                  B
+                <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-sm font-black ring-1 ring-blue-500/30">
+                  {isAuthenticated ? JSON.parse(localStorage.getItem("user") || "{}").username?.[0] : "?"}
                 </div>
-                <div>
-                   <p className="text-xs font-bold text-white">Bruno S.</p>
-                   <p className="text-[10px] text-emerald-500/70">Admin Master</p>
+                <div className="flex-1 min-w-0">
+                   <p className="text-xs font-black text-white truncate uppercase italic">
+                      {isAuthenticated ? JSON.parse(localStorage.getItem("user") || "{}").username : "Convidado"}
+                   </p>
+                   <p className="text-[9px] text-emerald-500/70 font-bold uppercase tracking-tighter">
+                      {isAuthenticated ? JSON.parse(localStorage.getItem("user") || "{}").role : "Visitante"}
+                   </p>
                 </div>
              </div>
           </div>
@@ -145,9 +156,13 @@ export default function RootLayoutContent({
                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                    <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider">AWS RDS Online</span>
                 </div>
-                <button className="glass p-2 hover:bg-white/10 transition-colors active:scale-95">
-                   <LogOut size={16} className="text-red-400" />
-                </button>
+                 <button 
+                   onClick={handleLogout}
+                   className="glass p-2 hover:bg-red-500/10 border-red-500/20 transition-all active:scale-90 group"
+                   title="Sair do Sistema"
+                 >
+                    <LogOut size={16} className="text-red-400 group-hover:text-red-500" />
+                 </button>
              </div>
           </div>
 

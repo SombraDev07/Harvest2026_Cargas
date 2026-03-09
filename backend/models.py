@@ -23,6 +23,8 @@ class Load(Base):
     updated_at = Column(DateTime, default=func.now()) # Arrival tracking (Only updated on Import/Upload)
     status = Column(String, default="pending", index=True) # pending, validated, error
     error_message = Column(String, nullable=True)
+    is_urgent = Column(Boolean, default=False, index=True)
+    arrival_at = Column(DateTime, nullable=True, index=True)
 
 class ValidatedLoad(Base):
     __tablename__ = "validated_loads"
@@ -68,3 +70,18 @@ class OperationLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     visit_code = Column(String, index=True) # COD
     timestamp = Column(DateTime, default=func.now())
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+    role = Column(String, default="user") # 'admin' for BrunoHarvest2026
+
+class KnownID(Base):
+    __tablename__ = "known_ids"
+
+    id = Column(Integer, primary_key=True, index=True)
+    load_identifier = Column(String, unique=True, index=True)
+    registered_at = Column(DateTime, default=func.now())
