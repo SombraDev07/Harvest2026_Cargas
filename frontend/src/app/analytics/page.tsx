@@ -43,6 +43,7 @@ function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(true);
+  const [showHelp, setShowHelp] = useState(false);
   const [analysis, setAnalysis] = useState<{ user_name: string, started_at: string } | null>(null);
 
   const fetchStatus = async () => {
@@ -200,8 +201,8 @@ function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[
             <h3 className={`text-lg font-black tracking-tight ${rule.color} uppercase flex items-center gap-2`}>
               {rule.name}
               <button 
-                onClick={(e) => { e.stopPropagation(); alert(`REGRA: ${rule.name}\n\n${rule.description}`); }}
-                className="hover:text-white transition-colors cursor-help bg-white/5 p-1 rounded-full"
+                onClick={(e) => { e.stopPropagation(); setShowHelp(!showHelp); }}
+                className={`transition-all p-1 rounded-full ${showHelp ? 'bg-white text-black' : 'hover:text-white bg-white/5 cursor-help'}`}
               >
                 <HelpCircle size={14} />
               </button>
@@ -214,7 +215,38 @@ function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[
             <p className="text-[10px] text-gray-500 font-bold tracking-widest uppercase">Resultados Totais do Motor RPA</p>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        
+        <AnimatePresence>
+          {showHelp && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="px-5 py-3 bg-blue-500/10 border-t border-white/5 overflow-hidden"
+            >
+              <div className="flex gap-3 items-start">
+                <div className="p-2 bg-blue-500/20 rounded-lg text-blue-400 mt-1">
+                  <HelpCircle size={18} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-blue-100 uppercase tracking-tighter mb-1">Entenda a Regra: {rule.name}</h4>
+                  <p className="text-xs text-blue-200/70 leading-relaxed font-medium">
+                    {rule.description}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setShowHelp(false)}
+                  className="ml-auto text-[10px] font-black text-blue-400/50 hover:text-blue-400 uppercase tracking-widest"
+                >
+                  Fechar
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="flex items-center gap-4 pr-5">
           {analysis ? (
             <div className="flex items-center gap-3">
               <motion.div 
