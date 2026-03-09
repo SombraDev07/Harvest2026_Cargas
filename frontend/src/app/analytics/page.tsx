@@ -35,7 +35,7 @@ const RULES = [
   { id: 9, name: "Rateio: Sem Parceiro (SIM isolado)", filter: "Rateio sem parceiro", icon: "👤", color: "text-indigo-400", statsKey: "rateio_parceiro", description: "Cargas marcadas com Rateio SIM que não possuem outro parceiro no mesmo grupo de 50 minutos." },
   { id: 10, name: "Rateio: Tecnologias Diferentes", filter: "Regra Rateio 3", icon: "🧬", color: "text-cyan-400", statsKey: "rateio_tech", description: "Identifica grupos de rateio onde as cargas possuem tecnologias de pesagem divergentes no cadastro." },
   { id: 11, name: "Possível Rateio (Aviso 20min)", filter: "Possível Rateio", icon: "🔔", color: "text-sky-400", statsKey: "rateio_possivel", description: "Alerta para cargas de mesma placa/tech pesadas com menos de 20min de intervalo, mas sem marcação de rateio." },
-  { id: 12, name: "Pesos Duplicados (Mesma Visita)", filter: "Peso duplicado", icon: "👯", color: "text-emerald-400", statsKey: "peso_duplicado", description: "Detecta pesos idênticos (Bruto ou Líquido) se repetindo na mesma visita para cargas fora de rateio (Float-safe)." },
+  { id: 12, name: "Pesos Duplicados (Mesma Visita)", filter: "Peso duplicado", icon: "👯", color: "text-emerald-400", statsKey: "peso_duplicado", description: "Detecta cargas onde o PAR de pesos (Líquido e Líquido com Desconto) se repete na mesma visita, independentemente de ser rateio ou não." },
   { id: 13, name: "Rateio: Mesmo Produtor", filter: "Rateio mesma conta", icon: "👤", color: "text-violet-400", statsKey: "rateio_mesmo_pdr", description: "Detecta grupos de rateio onde o produtor é o mesmo para todas as cargas, o que é um uso incorreto." },
 ];
 

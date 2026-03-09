@@ -12,8 +12,7 @@ def validate_romaneio_context(loads: list):
     rom_data = []
     # For Rule 1: Find duplicates within this group
     doc_counts = Counter()
-    gross_counts = Counter()
-    net_counts = Counter()
+    pair_counts = Counter()
     
     for l in loads:
         rateio_str = str(l.rateio or "NÃO").strip().upper()
@@ -23,9 +22,10 @@ def validate_romaneio_context(loads: list):
             doc_counts[str(l.doc_number)] += 1
         
         # New Rule: Peso Duplicado (within same visit)
-        # We count frequency across ALL loads, but only flag NO-Rateio ones later
-        if l.weight_gross > 0.1: gross_counts[round(l.weight_gross, 2)] += 1
-        if l.weight_net > 0.1: net_counts[round(l.weight_net, 2)] += 1
+        # We count frequency of the PAIR (PL + PLCD) across ALL loads
+        if l.weight_gross > 0.1 and l.weight_net > 0.1:
+            pair_key = (round(l.weight_gross, 2), round(l.weight_net, 2))
+            pair_counts[pair_key] += 1
 
     for load in loads:
         doc = str(load.doc_number or "")
@@ -47,16 +47,13 @@ def validate_romaneio_context(loads: list):
             errs.append(f"Romaneio duplicado nesta visita")
             load._temp_errors = errs
             
-        # Pesos Duplicados (Mesma Visita) - NEW CONTEXT
-        # Flag only if it's NOT a rateio load, but its weight matches ANY other load in the visit
-        if is_rateio_no:
-            is_dup_gross = gross_counts[round(load.weight_gross, 2)] > 1 if load.weight_gross > 0.1 else False
-            is_dup_net = net_counts[round(load.weight_net, 2)] > 1 if load.weight_net > 0.1 else False
-            
-            if is_dup_gross or is_dup_net:
+        # Pesos Duplicados (Mesma Visita) - REFINED
+        # Requirement: Both weights (PL and PLCD) repeat in another load, regardless of rateio
+        if load.weight_gross > 0.1 and load.weight_net > 0.1:
+            pair_key = (round(load.weight_gross, 2), round(load.weight_net, 2))
+            if pair_counts[pair_key] > 1:
                 errs = getattr(load, "_temp_errors", [])
-                dup_val = load.weight_gross if is_dup_gross else load.weight_net
-                errs.append(f"Pesos duplicados (Mesma Visita): Valor {dup_val:.2f} se repete na visita")
+                errs.append(f"Pesos duplicados (Mesma Visita): Par PL ({load.weight_gross:.2f}) e PLCD ({load.weight_net:.2f}) se repete")
                 load._temp_errors = errs
         
     if not rom_data: return
