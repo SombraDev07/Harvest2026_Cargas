@@ -158,16 +158,15 @@ function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[
     
     const groupMap: Record<string, any[]> = {};
     data.forEach(item => {
-      // Logic for Peso Duplicado: group by Visit + Plate + Weight (to find the partners)
-      // Per user request: Ignore loads where rateio is "SIM"
-      if (rule.statsKey === "peso_duplicado" && item.rateio === "SIM") return;
-
       let key = "";
       if (rule.statsKey === "rateio_peso") {
         key = `${item.truck_plate}-${item.technology}-${item.visit_code}`;
       } else {
-        // Group by weight to find the one that repeats
-        key = `PL:${item.weight_gross}-PLCD:${item.weight_net}-VISIT:${item.visit_code}`;
+        // Group by weight pair to match the backend pair-based logic
+        // Using toFixed(2) to ensure consistent grouping regardless of small float variations
+        const pl = Number(item.weight_gross || 0).toFixed(2);
+        const plcd = Number(item.weight_net || 0).toFixed(2);
+        key = `PL:${pl}-PLCD:${plcd}-VISIT:${item.visit_code}`;
       }
 
       if (!groupMap[key]) groupMap[key] = [];
