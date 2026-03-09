@@ -28,6 +28,28 @@ def read_root():
     return {"message": "Harvest 2026 API is running"}
 
 @app.on_event("startup")
+def run_migrations():
+    """Self-healing migration to ensure DB schema is up to date on production."""
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        print("--- [MIGRATION] Checking for missing columns in 'loads' table ---")
+        # List of columns to check and their types (PostgreSQL compatible)
+        columns = [
+            ("is_urgent", "BOOLEAN DEFAULT FALSE"),
+            ("arrival_at", "TIMESTAMP WITHOUT TIME ZONE"),
+            ("updated_at", "TIMESTAMP WITHOUT TIME ZONE")
+        ]
+        
+        for col_name, col_type in columns:
+            try:
+                # Add column if it doesn't exist (Supported by Postgres 9.6+)
+                conn.execute(text(f"ALTER TABLE loads ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+                conn.commit()
+                print(f"--- [MIGRATION] Column {col_name} ensured ---")
+            except Exception as e:
+                print(f"--- [MIGRATION] Warning: Could not ensure column {col_name}: {e} ---")
+
+@app.on_event("startup")
 def seed_user():
     db = next(get_db())
     # Seed admin email as requested
