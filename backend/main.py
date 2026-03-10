@@ -201,6 +201,7 @@ def get_system_status(db: Session = Depends(get_db)):
     """Returns general system status including active spreadsheet."""
     active_file = db.query(models.SystemConfig).filter(models.SystemConfig.key == "active_filename").first()
     last_upload = db.query(models.SystemConfig).filter(models.SystemConfig.key == "last_upload_at").first()
+    is_processing = db.query(models.SystemConfig).filter(models.SystemConfig.key == "is_processing").first()
     
     total_loads = db.query(models.Load).count()
     memory_count = db.query(models.KnownID).count()
@@ -208,6 +209,7 @@ def get_system_status(db: Session = Depends(get_db)):
     return {
         "active_filename": active_file.value if active_file else "Nenhuma planilha ativa",
         "last_upload_at": last_upload.value if last_upload else "N/A",
+        "is_processing": True if is_processing and is_processing.value == "true" else False,
         "total_loads": total_loads,
         "memory_count": memory_count
     }
@@ -479,6 +481,12 @@ def trigger_validation(background_tasks: BackgroundTasks, db: Session = Depends(
     # 2. Clear tracking tables entirely
     db.query(models.ValidatedLoad).delete()
     db.query(models.ErrorLedger).delete()
+    
+    # Set is_processing to true for the UI to show loading overlay
+    c = db.query(models.SystemConfig).filter(models.SystemConfig.key == "is_processing").first()
+    if c: c.value = "true"
+    else: db.add(models.SystemConfig(key="is_processing", value="true"))
+    
     db.commit()
     
     # 3. Run validation in background to avoid browser timeout
@@ -487,13 +495,20 @@ def trigger_validation(background_tasks: BackgroundTasks, db: Session = Depends(
         from database import SessionLocal
         inner_db = SessionLocal()
         try:
+            print("--- [BACKGROUND] Starting automation audit (Full) ---")
             validation.run_batch_validation(inner_db, limit=1000000)
+        except Exception as e:
+            print(f"--- [BACKGROUND ERROR] Validation crashed: {e} ---")
         finally:
+            c = inner_db.query(models.SystemConfig).filter(models.SystemConfig.key == "is_processing").first()
+            if c: c.value = "false"
+            else: inner_db.add(models.SystemConfig(key="is_processing", value="false"))
+            inner_db.commit()
             inner_db.close()
             
     background_tasks.add_task(run_full_audit)
     
-    return {"message": "Auditoria de 80.000+ linhas iniciada em segundo plano. Recarregue a página em alguns segundos para ver o resultado limpo."}
+    return {"message": "Auditoria de 80.000+ linhas iniciada em segundo plano. O painel mostrará a tela de carregamento."}
 
 @app.get("/analytics/district/{district_name}")
 def get_district_distribution(district_name: str, db: Session = Depends(get_db)):
@@ -631,8 +646,7 @@ async def upload_file(
             return str(val).strip()
 
         # Pre-fetch for UPSERT and Delta logic
-        # optimization: use a smaller set for known_ids if possible, but keep it for now as it's just strings
-        known_ids_set = {ki.load_identifier for ki in db.query(models.KnownID.load_identifier).all()}
+        # Optimize by getting only known IDs in chunks to prevent severe memory crashes on large dbs
         
         imported_count = 0
         updated_count = 0
@@ -653,6 +667,9 @@ async def upload_file(
             chunk_ids = [str(x).strip() for x in chunk_df[col_id].dropna()]
             existing_loads = {l.load_identifier: l for l in db.query(models.Load).filter(models.Load.load_identifier.in_(chunk_ids)).all()}
             
+            # Fetch ONLY the known IDs that exist in this chunk to prevent full DB memory load
+            known_ids_chunk = {ki[0] for ki in db.query(models.KnownID.load_identifier).filter(models.KnownID.load_identifier.in_(chunk_ids)).all()}
+            
             for _, row in chunk_df.iterrows():
                 raw_id = row.get(col_id)
                 if raw_id is None or pd.isna(raw_id) or str(raw_id).strip() == "":
@@ -660,12 +677,13 @@ async def upload_file(
                     
                 load_id = str(raw_id).strip()
                 load = existing_loads.get(load_id)
-                is_new_id = load_id not in known_ids_set
+                is_new_id = load_id not in known_ids_chunk
                 
                 if not load:
                     load = models.Load(load_identifier=load_id)
                     db.add(load)
                     existing_loads[load_id] = load # Update map for intra-chunk duplicates
+                    if is_new_id: known_ids_chunk.add(load_id) # mark as known from now on in this chunk
                     imported_count += 1
                 else:
                     updated_count += 1
@@ -716,6 +734,8 @@ async def upload_file(
         set_config("last_upload_at", now_str)
         set_config("active_filename", file.filename)
         
+        # Set is_processing to true
+        set_config("is_processing", "true")
         db.commit()
         
         # Immediate Validation (Non-blocking)
@@ -729,6 +749,11 @@ async def upload_file(
             except Exception as e:
                 print(f"--- [BACKGROUND ERROR] Validation crashed: {e} ---")
             finally:
+                # Turn off the processing flag
+                c = val_db.query(models.SystemConfig).filter(models.SystemConfig.key == "is_processing").first()
+                if c: c.value = "false"
+                else: val_db.add(models.SystemConfig(key="is_processing", value="false"))
+                val_db.commit()
                 val_db.close()
         
         background_tasks.add_task(run_validation_safely)

@@ -65,6 +65,12 @@ export default function SpreadsheetPage() {
       await fetchStatus();
     };
     init();
+    
+    // Poll status every 3 seconds to catch the background validation progress
+    const interval = setInterval(() => {
+      fetchStatus();
+    }, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleSystemReset = async () => {
@@ -160,9 +166,25 @@ export default function SpreadsheetPage() {
   };
 
   return (
-    <div className="space-y-12">
-      <header className="flex flex-col gap-2 relative">
-        <div className="absolute -top-10 -left-10 w-40 h-40 bg-blue-500/10 blur-[80px] -z-10" />
+    <>
+      {systemStatus?.is_processing && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="flex flex-col items-center justify-center"
+          >
+            <div className="w-24 h-24 rounded-[2rem] bg-gradient-to-br from-blue-600/30 to-emerald-600/30 flex items-center justify-center border border-white/10 shadow-[0_0_50px_rgba(59,130,246,0.2)] mb-8">
+               <Loader2 className="animate-spin text-blue-400" size={48} />
+            </div>
+            <h2 className="text-4xl font-black text-white mb-4 italic tracking-tight">Analisando Arquivos em <span className="text-blue-500">Lotes...</span></h2>
+            <p className="text-gray-400 font-medium max-w-lg text-center leading-relaxed">O Harvest RPA está desmembrando seu documento, dividindo por Distrito, validando regras de Rateio, Romaneio e deduplicando erros de forma profunda. <br /><br /> <span className="text-white font-bold block">Por favor, não feche o navegador.</span></p>
+          </motion.div>
+        </div>
+      )}
+      <div className="space-y-12">
+        <header className="flex flex-col gap-2 relative">
+          <div className="absolute -top-10 -left-10 w-40 h-40 bg-blue-500/10 blur-[80px] -z-10" />
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-4xl font-bold tracking-tight text-white italic">Inteligência de <span className="text-gray-500">Dados RPA</span></h2>
@@ -415,9 +437,10 @@ export default function SpreadsheetPage() {
                   <p className="text-[10px] text-emerald-400 font-bold text-center animate-pulse">{memoryMessage}</p>
                 )}
               </div>
-           </div>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
