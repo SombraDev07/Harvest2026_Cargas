@@ -120,14 +120,28 @@ def get_loads(
 
     if error_type:
         # Optimization: Use a join instead of IN clause with thousands of IDs
+        # We explicitly fetch the ledger message as an attribute 'ledger_message'
         query = query.join(models.ErrorLedger, models.Load.load_identifier == models.ErrorLedger.load_identifier)\
-                     .filter(models.ErrorLedger.error_type == error_type)
+                     .filter(models.ErrorLedger.error_type == error_type)\
+                     .add_columns(models.ErrorLedger.error_message.label("ledger_message"))
         
     if district:
         query = query.filter(models.Load.district == district)
         
-    loads = query.order_by(models.Load.updated_at.desc()).offset(skip).limit(limit).all()
-    return loads
+    results = query.order_by(models.Load.updated_at.desc()).offset(skip).limit(limit).all()
+    
+    # Process results: if we have added columns, SQLAlchemy returns tuples
+    final_loads = []
+    for item in results:
+        if isinstance(item, tuple):
+            load_obj = item[0]
+            # Override error_message with the specific one from this ledger entry (includes %)
+            load_obj.error_message = item.ledger_message
+            final_loads.append(load_obj)
+        else:
+            final_loads.append(item)
+
+    return final_loads
 
 @app.get("/config")
 def get_config(db: Session = Depends(get_db)):
@@ -311,6 +325,7 @@ def get_analytics(db: Session = Depends(get_db)):
     # Source of Truth for Status
     validated = db.query(models.Load).filter(models.Load.status == "validated").count()
     pending = db.query(models.Load).filter(models.Load.status == "pending").count()
+    operation_count = db.query(models.OperationLog.load_identifier).distinct().count()
     
     # Source of Truth for Errors (Distinct Loads that have at least one error in Ledger)
     error_loads_count = db.query(models.ErrorLedger.load_identifier).distinct().count()
