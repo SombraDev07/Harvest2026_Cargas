@@ -202,6 +202,7 @@ def get_system_status(db: Session = Depends(get_db)):
     active_file = db.query(models.SystemConfig).filter(models.SystemConfig.key == "active_filename").first()
     last_upload = db.query(models.SystemConfig).filter(models.SystemConfig.key == "last_upload_at").first()
     is_processing = db.query(models.SystemConfig).filter(models.SystemConfig.key == "is_processing").first()
+    progress = db.query(models.SystemConfig).filter(models.SystemConfig.key == "processing_progress").first()
     
     total_loads = db.query(models.Load).count()
     memory_count = db.query(models.KnownID).count()
@@ -210,6 +211,7 @@ def get_system_status(db: Session = Depends(get_db)):
         "active_filename": active_file.value if active_file else "Nenhuma planilha ativa",
         "last_upload_at": last_upload.value if last_upload else "N/A",
         "is_processing": True if is_processing and is_processing.value == "true" else False,
+        "processing_progress": int(progress.value) if progress and progress.value.isdigit() else 0,
         "total_loads": total_loads,
         "memory_count": memory_count
     }

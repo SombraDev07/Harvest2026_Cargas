@@ -139,7 +139,15 @@ def run_batch_validation(db: Session, district: str = None, limit: int = 1000000
             db.bulk_save_objects(all_new_ledger_entries)
             
         db.commit()
-        print(f"--- [PROGRESS] Validated {min(i + chunk_size, total_batch_visits)}/{total_batch_visits} visits... ---")
+        
+        # Calculate and save progress
+        progress_val = int((min(i + chunk_size, total_batch_visits) / total_batch_visits) * 100) if total_batch_visits > 0 else 100
+        prg = db.query(models.SystemConfig).filter(models.SystemConfig.key == "processing_progress").first()
+        if prg: prg.value = str(progress_val)
+        else: db.add(models.SystemConfig(key="processing_progress", value=str(progress_val)))
+        db.commit()
+        
+        print(f"--- [PROGRESS] Validated {min(i + chunk_size, total_batch_visits)}/{total_batch_visits} visits ({progress_val}%)... ---")
               
     print(f"--- GROUP ENGINE DONE: {results['success']} OK, {results['error']} Errors ---")
     return results
