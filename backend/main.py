@@ -655,36 +655,36 @@ async def upload_file(
                 else:
                     updated_count += 1
 
-            # Delta Logic: Mark as urgent if ID is previously unknown
-            if is_new_id:
-                load.is_urgent = True
-                load.arrival_at = now
-            else:
-                load.is_urgent = False
-                # arrival_at stays as is or can be cleared
+                # Delta Logic: Mark as urgent if ID is previously unknown
+                if is_new_id:
+                    load.is_urgent = True
+                    load.arrival_at = now
+                else:
+                    load.is_urgent = False
+                    # arrival_at stays as is or can be cleared
 
-            # Populate Fields
-            load.truck_plate = clean_val(row.get(col_plate))
-            load.product = clean_val(row.get(col_product))
-            load.district = clean_val(row.get(col_district))
-            load.visit_code = clean_val(row.get(col_visit))
-            load.doc_number = clean_val(row.get(col_doc))
-            load.city = clean_val(row.get(col_city))
-            load.cnpj_filial = clean_val(row.get(col_cnpj_filial))
-            load.rateio = clean_val(row.get(col_rateio))
-            load.technology = clean_val(row.get(col_technology))
-            load.load_time = clean_val(row.get(col_load_time))
-            load.weight_gross = to_float(row.get(col_weight_gross))
-            load.weight_net = to_float(row.get(col_weight_net))
-            load.status = "pending" 
-            load.updated_at = models.func.now()
+                # Populate Fields
+                load.truck_plate = clean_val(row.get(col_plate))
+                load.product = clean_val(row.get(col_product))
+                load.district = clean_val(row.get(col_district))
+                load.visit_code = clean_val(row.get(col_visit))
+                load.doc_number = clean_val(row.get(col_doc))
+                load.city = clean_val(row.get(col_city))
+                load.cnpj_filial = clean_val(row.get(col_cnpj_filial))
+                load.rateio = clean_val(row.get(col_rateio))
+                load.technology = clean_val(row.get(col_technology))
+                load.load_time = clean_val(row.get(col_load_time))
+                load.weight_gross = to_float(row.get(col_weight_gross))
+                load.weight_net = to_float(row.get(col_weight_net))
+                load.status = "pending" 
+                load.updated_at = models.func.now()
+                
+                # --- AUTO-MEMORY REGISTRATION ---
+                # Automatically add this ID to KnownID (Memory) if not there
+                if is_new_id:
+                    db.add(models.KnownID(load_identifier=load_id, registered_at=now))
             
-            # --- AUTO-MEMORY REGISTRATION ---
-            # Automatically add this ID to KnownID (Memory) if not there
-            if is_new_id:
-                db.add(models.KnownID(load_identifier=load_id, registered_at=now))
-            
-            # Periodically commit and clear session to keep memory low
+            # Periodically commit and clear session to keep memory low (IN THE OUTER CHUNK LOOP)
             if (i + batch_size) % 5000 == 0:
                 db.commit()
         
