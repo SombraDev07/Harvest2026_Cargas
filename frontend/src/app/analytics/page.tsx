@@ -466,7 +466,7 @@ export default function AnalyticsPage() {
     if (shouldPoll) {
       interval = setInterval(() => {
         fetchStats();
-      }, 3000);
+      }, 2000); // Increased to 2s for better responsiveness
     }
     return () => clearInterval(interval);
   }, [isValidating, stats?.pending_loads]);
@@ -485,6 +485,8 @@ export default function AnalyticsPage() {
       // No alert needed if we have auto-polling, but good for confirmation
       console.log(res.data.message);
       await fetchStats();
+      // Ensure we poll immediately after trigger
+      setTimeout(fetchStats, 1000);
     } catch (e) {
       console.error(e);
       alert("Erro ao iniciar auditoria.");

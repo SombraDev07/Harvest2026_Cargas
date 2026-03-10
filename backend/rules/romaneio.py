@@ -26,12 +26,11 @@ def validate_romaneio_context(loads: list, config: dict = None):
             pair_key = (round(l.weight_gross, 2), round(l.weight_net, 2))
             pair_counts[pair_key] += 1
 
-    # For Rule 1: Standard count for non-rateio internal duplication
-    non_rateio_counts = Counter()
+    # For Rule 1: Standard count for ALL internal duplication (detect mixed SIM/NÃO)
+    global_doc_counts = Counter()
     for l in loads:
-        rateio_str = str(l.rateio or "NÃO").strip().upper()
-        if (rateio_str in ["NÃO", "NAO"]) and l.doc_number != "N/A":
-            non_rateio_counts[str(l.doc_number)] += 1
+        if str(l.doc_number).strip() != "N/A":
+            global_doc_counts[str(l.doc_number).strip()] += 1
 
     for load in loads:
         doc = str(load.doc_number or "")
@@ -49,7 +48,8 @@ def validate_romaneio_context(loads: list, config: dict = None):
         plate = str(load.truck_plate or "N/A").strip().upper()
 
         # Rule 1 (Duplicates) - For NON-RATEIO
-        if is_rateio_no and non_rateio_counts[str(load.doc_number)] > 1:
+        # Flag if this 'NÃO' doc appears MORE THAN ONCE in the entire visit (regardless of other's status)
+        if is_rateio_no and global_doc_counts[str(load.doc_number).strip()] > 1:
             errs = getattr(load, "_temp_errors", [])
             errs.append(f"Romaneio duplicado nesta visita")
             load._temp_errors = errs
