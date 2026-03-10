@@ -39,7 +39,7 @@ def validate_individual_rules(load: models.Load):
             diff = load.weight_gross - load.weight_net
             discount_perc = diff / load.weight_gross
             if discount_perc > 0.25:
-                errors.append(f"Desconto excessivo ({discount_perc:.1%}) sem rateio")
+                errors.append(f"Desconto excessivo ({discount_perc:.1%})")
 
     load._temp_errors = errors
     return errors

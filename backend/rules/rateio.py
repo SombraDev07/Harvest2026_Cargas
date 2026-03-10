@@ -87,6 +87,20 @@ def validate_rateio_groups(loads: list, config: dict = None):
                                 errs.append(f"Rateio mesma conta: PDR ({l.product}) repetido no grupo SIM ({delta}min)")
                                 l._temp_errors = errs
 
+                # RULE: Group Excessive Discount
+                # Logic: If multiple producers, check total group break %
+                unique_producers = set(normalize_str(l.product) for l in sub if l.product)
+                if len(unique_producers) > 1:
+                    total_g_gross = sum(l.weight_gross for l in sub)
+                    total_g_net = sum(l.weight_net for l in sub)
+                    if total_g_gross > 0.1:
+                        group_discount = (total_g_gross - total_g_net) / total_g_gross
+                        if group_discount > 0.25:
+                            for l in sub:
+                                errs = getattr(l, "_temp_errors", [])
+                                errs.append(f"Desconto excessivo do Grupo ({group_discount:.1%})")
+                                l._temp_errors = errs
+
             # RULE 4: Possible Rateio
             if count_nao >= 1:
                 for idx, l in enumerate(sub):

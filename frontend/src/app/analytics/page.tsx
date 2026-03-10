@@ -30,7 +30,7 @@ const RULES = [
   { id: 4, name: "Placa Inválida", filter: "Placa inválida", icon: "🚗", color: "text-rose-400", statsKey: "placa", description: "Valida se a placa segue o formato Mercosul ou antigo e se não está vazia." },
   { id: 5, name: "Excesso de Peso", filter: "acima do limite", icon: "⚖️", color: "text-purple-400", statsKey: "peso_limite", description: "Detecta cargas individuais que ultrapassam o limite técnico ou legal permitido (ex: 52k kg)." },
   { id: 6, name: "Peso Fictício", filter: "peso fictício", icon: "🔢", color: "text-pink-400", statsKey: "peso_ficticio", description: "Identifica pesos terminados em padrões como 000 ou 999, indicando possível preenchimento manual." },
-  { id: 7, name: "Desconto Excessivo", filter: "Desconto excessivo", icon: "📉", color: "text-yellow-400", statsKey: "desconto", description: "Alerta quando a diferença entre Peso Bruto e Líquido ultrapassa 25% (fora de casos de rateio)." },
+  { id: 7, name: "Desconto Excessivo (>25%)", filter: "Desconto excessivo", icon: "📉", color: "text-yellow-400", statsKey: "desconto", description: "Detecta cargas onde a quebra (Peso Bruto - Líquido) excede 25%. Para rateios, calcula a média do grupo (total bruto vs total líquido)." },
   { id: 8, name: "Rateio: Peso Inválido (PLCD > PL)", filter: "Divergência Grupo Rateio", icon: "⚖️", color: "text-blue-400", statsKey: "rateio_peso", description: "Valida se a soma dos pesos com desconto (PLCD) é superior à soma dos pesos líquidos (PL) no grupo de rateio." },
   { id: 9, name: "Rateio: Sem Parceiro (SIM isolado)", filter: "Rateio sem parceiro", icon: "👤", color: "text-indigo-400", statsKey: "rateio_parceiro", description: "Cargas marcadas com Rateio SIM que não possuem outro parceiro no mesmo grupo de 50 minutos." },
   { id: 10, name: "Rateio: Tecnologias Diferentes", filter: "Regra Rateio 3", icon: "🧬", color: "text-cyan-400", statsKey: "rateio_tech", description: "Identifica grupos de rateio onde as cargas possuem tecnologias de pesagem divergentes no cadastro." },
@@ -325,6 +325,7 @@ function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[
                 <th className="px-3 py-4 font-bold border-b border-white/5">Produtor</th>
                 <th className="px-3 py-4 font-bold text-center border-b border-white/5">PL (kg)</th>
                 <th className="px-3 py-4 font-bold text-center border-b border-white/5">PLCD (kg)</th>
+                <th className="px-3 py-4 font-bold border-b border-white/5">Inconsistência</th>
                 <th className="px-3 py-4 font-bold border-b border-white/5">Ações</th>
               </tr>
             </thead>
@@ -445,7 +446,8 @@ export default function AnalyticsPage() {
 
   const fetchStats = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/analytics`);
+      // Adding cache busting timestamp
+      const res = await axios.get(`${API_BASE_URL}/analytics?t=${Date.now()}`);
       setStats(res.data);
     } catch (e) {
       console.error(e);
