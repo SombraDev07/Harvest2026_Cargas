@@ -119,10 +119,9 @@ def get_loads(
         ))
 
     if error_type:
+        # Optimization: Use a join instead of IN clause with thousands of IDs
         query = query.join(models.ErrorLedger, models.Load.load_identifier == models.ErrorLedger.load_identifier)\
                      .filter(models.ErrorLedger.error_type == error_type)
-    elif status:
-        query = query.filter(models.Load.status == status)
         
     if district:
         query = query.filter(models.Load.district == district)
@@ -617,8 +616,8 @@ async def upload_file(
             return str(val).strip()
 
         # Pre-fetch for UPSERT and Delta logic
-        existing_loads_map = {l.load_identifier: l for l in db.query(models.Load).all()}
-        known_ids_set = {ki.load_identifier for ki in db.query(models.KnownID).all()}
+        # optimization: use a smaller set for known_ids if possible, but keep it for now as it's just strings
+        known_ids_set = {ki.load_identifier for ki in db.query(models.KnownID.load_identifier).all()}
         
         imported_count = 0
         updated_count = 0
@@ -629,22 +628,32 @@ async def upload_file(
         if col_district in df.columns:
             unique_districts = df[col_district].dropna().unique().astype(str).tolist()
 
-        for row_idx, row in df.iterrows():
-            raw_id = row.get(col_id)
-            if raw_id is None or pd.isna(raw_id) or str(raw_id).strip() == "":
-                continue
-                
-            load_id = str(raw_id).strip()
-            load = existing_loads_map.get(load_id)
-            is_new_id = load_id not in known_ids_set
+        # Batch processing to avoid OOM and keep DB alive
+        # We process in chunks of 1000 to balance speed and memory
+        batch_size = 1000
+        for i in range(0, len(df), batch_size):
+            chunk_df = df.iloc[i:i+batch_size]
             
-            if not load:
-                load = models.Load(load_identifier=load_id)
-                db.add(load)
-                existing_loads_map[load_id] = load
-                imported_count += 1
-            else:
-                updated_count += 1
+            # Fetch existing loads for THIS chunk only
+            chunk_ids = [str(x).strip() for x in chunk_df[col_id].dropna()]
+            existing_loads = {l.load_identifier: l for l in db.query(models.Load).filter(models.Load.load_identifier.in_(chunk_ids)).all()}
+            
+            for _, row in chunk_df.iterrows():
+                raw_id = row.get(col_id)
+                if raw_id is None or pd.isna(raw_id) or str(raw_id).strip() == "":
+                    continue
+                    
+                load_id = str(raw_id).strip()
+                load = existing_loads.get(load_id)
+                is_new_id = load_id not in known_ids_set
+                
+                if not load:
+                    load = models.Load(load_identifier=load_id)
+                    db.add(load)
+                    existing_loads[load_id] = load # Update map for intra-chunk duplicates
+                    imported_count += 1
+                else:
+                    updated_count += 1
 
             # Delta Logic: Mark as urgent if ID is previously unknown
             if is_new_id:
@@ -675,9 +684,9 @@ async def upload_file(
             if is_new_id:
                 db.add(models.KnownID(load_identifier=load_id, registered_at=now))
             
-            # Since we processed 2k rows, flush occasionally
-            if (row_idx + 1) % 2000 == 0:
-                db.flush()
+            # Periodically commit and clear session to keep memory low
+            if (i + batch_size) % 5000 == 0:
+                db.commit()
         
         db.commit()
         

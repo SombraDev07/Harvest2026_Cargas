@@ -456,23 +456,25 @@ export default function AnalyticsPage() {
     fetchStats();
   }, []);
 
-  // Auto-refresh logic when validating
+  // Auto-refresh logic: Poll if manually validating OR if there are pending loads from a recent upload
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isValidating) {
+    const shouldPoll = isValidating || (stats?.pending_loads > 0);
+    
+    if (shouldPoll) {
       interval = setInterval(() => {
         fetchStats();
-      }, 3000); // Check every 3s
+      }, 3000);
     }
     return () => clearInterval(interval);
-  }, [isValidating]);
+  }, [isValidating, stats?.pending_loads]);
 
-  // If pending loads hit 0, we can assume it's done for visuals
+  // If pending loads hit 0, we can assume auto-audit is done
   useEffect(() => {
     if (stats?.pending_loads === 0 && isValidating) {
       setIsValidating(false);
     }
-  }, [stats?.pending_loads, isValidating]);
+  }, [stats?.pending_loads]);
 
   const triggerValidation = async () => {
     setIsValidating(true);
