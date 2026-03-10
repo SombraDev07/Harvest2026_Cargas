@@ -616,14 +616,14 @@ async def upload_file(
             if len(df.columns) > default_idx: return df.columns[default_idx]
             return normalized_cols[0] if normalized_cols else "MISSING"
 
-        col_id = find_column_robust(["ID"], 13)
+        col_id = find_column_robust(["ID", "CHAVE", "IDENTIFICADOR", "TICKET"], 13)
         col_district = find_column_robust(["DISTRITO FILIAL", "DISTRITO"], 8)
-        col_weight_gross = find_column_robust(["PESO LÍQUIDO", "PESO LIQUIDO"], 18)
+        col_weight_gross = find_column_robust(["PESO LÍQUIDO", "PESO LIQUIDO", "PESO", "BRUTO"], 18)
         col_weight_net = find_column_robust(["PESO LÍQUIDO C/ DESCONTO", "PESO LIQUIDO C/ DESCONTO", "PLCD"], 19)
-        col_plate = find_column_robust(["PLACA DO CAMINHÃO", "PLACA"], 23)
-        col_product = find_column_robust(["PRODUTOR"], 21)
+        col_plate = find_column_robust(["PLACA DO CAMINHÃO", "PLACA", "VEICULO", "VEÍCULO"], 23)
+        col_product = find_column_robust(["PRODUTOR", "CLIENTE", "FORNECEDOR", "PARCEIRO"], 21)
         col_visit = find_column_robust(["CÓDIGO VISITA", "VISITA", "COD"], 0)
-        col_doc = find_column_robust(["NÚMERO DOCUMENTO", "DOCUMENTO", "ROMANEIO"], 17)
+        col_doc = find_column_robust(["NÚMERO DOCUMENTO", "DOCUMENTO", "ROMANEIO", "DOC"], 17)
         col_cnpj_filial = find_column_robust(["CNPJ FILIAL PDR", "CNPJ FILIAL", "CNPJ/FILIAL"], 12)
         col_rateio = find_column_robust(["RATEIO"], 31)
         col_technology = find_column_robust(["RESULTADO DO TESTE ACOMPANHADO", "TECNOLOGIA", "TECH", "SISTEMA"], 20)

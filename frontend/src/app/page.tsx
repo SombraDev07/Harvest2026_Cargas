@@ -72,6 +72,16 @@ export default function Dashboard() {
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null);
   const [districtData, setDistrictData] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [systemStatus, setSystemStatus] = useState<any>({});
+
+  const fetchStatus = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/system/status`);
+      setSystemStatus(res.data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const fetchDistrictData = async (name: string) => {
     try {
@@ -107,6 +117,22 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Fetch system status periodically
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(() => {
+      fetchStatus();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-refresh when background processing finishes
+  useEffect(() => {
+    if (systemStatus?.is_processing === false) {
+        fetchData();
+    }
+  }, [systemStatus?.is_processing]);
 
   const statCards = [
     { 
