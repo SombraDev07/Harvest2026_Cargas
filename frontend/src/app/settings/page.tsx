@@ -32,7 +32,7 @@ export default function SettingsPage() {
     const fetchConfig = async () => {
       try {
         const res = await axios.get(`${API_BASE_URL}/config`);
-        setConfig(prev => ({ ...prev, ...res.data }));
+        setConfig((prev: any) => ({ ...prev, ...res.data }));
       } catch (e) {
         console.error(e);
       } finally {
