@@ -747,9 +747,16 @@ async def upload_file(
                 validation.run_batch_validation(val_db)
                 print("--- [BACKGROUND] Automation audit completed successfully ---")
             except Exception as e:
+                import traceback
+                tb = traceback.format_exc()
                 print(f"--- [BACKGROUND ERROR] Validation crashed: {e} ---")
+                print(tb)
+                # Save the error to DB so we can debug it even if docker logs are lost
+                c = val_db.query(models.SystemConfig).filter(models.SystemConfig.key == "last_validation_error").first()
+                if c: c.value = str(e) + " | " + tb[:500]
+                else: val_db.add(models.SystemConfig(key="last_validation_error", value=str(e) + " | " + tb[:500]))
             finally:
-                # Turn off the processing flag
+                # Turn off the processing flag ALWAYS
                 c = val_db.query(models.SystemConfig).filter(models.SystemConfig.key == "is_processing").first()
                 if c: c.value = "false"
                 else: val_db.add(models.SystemConfig(key="is_processing", value="false"))
