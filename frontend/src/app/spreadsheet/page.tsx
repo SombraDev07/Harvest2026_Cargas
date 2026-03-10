@@ -373,13 +373,14 @@ export default function SpreadsheetPage() {
                 <div className="space-y-2">
                    <div className="flex justify-between text-xs font-bold mb-1">
                       <span className="text-gray-400 uppercase">Processador</span>
-                      <span className="text-white">82%</span>
+                      <span className="text-white">{isUploading || isValidating ? '94%' : '4%'}</span>
                    </div>
                    <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
                       <motion.div 
-                        className="h-full bg-blue-500" 
+                        className={`h-full ${isUploading || isValidating ? 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'bg-gray-600'}`} 
                         initial={{ width: 0 }}
-                        animate={{ width: '82%' }}
+                        animate={{ width: isUploading || isValidating ? '94%' : '4%' }}
+                        transition={{ type: 'spring', stiffness: 50 }}
                       />
                    </div>
                 </div>
