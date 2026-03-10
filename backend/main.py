@@ -42,12 +42,19 @@ def run_migrations():
         
         for col_name, col_type in columns:
             try:
-                # Add column if it doesn't exist (Supported by Postgres 9.6+)
                 conn.execute(text(f"ALTER TABLE loads ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
                 conn.commit()
                 print(f"--- [MIGRATION] Column {col_name} ensured ---")
             except Exception as e:
                 print(f"--- [MIGRATION] Warning: Could not ensure column {col_name}: {e} ---")
+
+        # Ensure SystemConfig table exists (Base.metadata.create_all handles it usually but let's be sure)
+        try:
+            conn.execute(text("CREATE TABLE IF NOT EXISTS system_config (key VARCHAR PRIMARY KEY, value VARCHAR)"))
+            conn.commit()
+            print("--- [MIGRATION] Table system_config ensured ---")
+        except Exception as e:
+            print(f"--- [MIGRATION] Warning: Could not ensure table system_config: {e} ---")
 
 @app.on_event("startup")
 def seed_user():
@@ -115,6 +122,31 @@ def get_loads(
         
     loads = query.order_by(models.Load.updated_at.desc()).offset(skip).limit(limit).all()
     return loads
+
+@app.get("/config")
+def get_config(db: Session = Depends(get_db)):
+    """Returns current system configuration."""
+    configs = db.query(models.SystemConfig).all()
+    result = {c.key: c.value for c in configs}
+    # Defaults
+    if "corporate_email" not in result: result["corporate_email"] = "suporte@harvest2026.com.br"
+    if "user_display_name" not in result: result["user_display_name"] = "Bruno S."
+    if "rateio_delta_minutes" not in result: result["rateio_delta_minutes"] = "20"
+    if "last_upload_at" not in result: result["last_upload_at"] = "Nenhuma planilha processada"
+    
+    return result
+
+@app.patch("/config")
+def update_config(data: dict, db: Session = Depends(get_db)):
+    """Updates system configuration keys."""
+    for key, value in data.items():
+        config = db.query(models.SystemConfig).filter(models.SystemConfig.key == key).first()
+        if config:
+            config.value = str(value)
+        else:
+            db.add(models.SystemConfig(key=key, value=str(value)))
+    db.commit()
+    return {"message": "Configurações atualizadas com sucesso"}
 
 @app.get("/registered-loads", response_model=List[schemas.RegisteredLoadResponse])
 def get_registered_loads(db: Session = Depends(get_db)):
@@ -185,6 +217,16 @@ def register_historical_ids(file: UploadFile = File(...), db: Session = Depends(
                 count += 1
         
         db.commit()
+        
+        # Track last upload time
+        now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        config_last = db.query(models.SystemConfig).filter(models.SystemConfig.key == "last_upload_at").first()
+        if config_last:
+            config_last.value = now_str
+        else:
+            db.add(models.SystemConfig(key="last_upload_at", value=now_str))
+        db.commit()
+
         return {"message": f"Memória atualizada: {count} novos IDs registrados", "total_registered": count}
     except Exception as e:
         import traceback
@@ -237,9 +279,13 @@ def get_analytics(db: Session = Depends(get_db)):
     # Source of Truth for Errors (Distinct Loads that have at least one error in Ledger)
     error_loads_count = db.query(models.ErrorLedger.load_identifier).distinct().count()
     
-    # Count visits sent to operation
-    operation_count = db.query(models.OperationLog).count()
-    
+    # Pending in last 72h count
+    threshold_72h = datetime.now() - timedelta(hours=72)
+    pending_72h = db.query(models.Load).filter(
+        models.Load.status == "pending",
+        models.Load.arrival_at < threshold_72h
+    ).count()
+
     # Rule based counts (FROM LEDGER - The absolute Source of Truth)
     # We query the ledger to see how many entries exist for each category
     from sqlalchemy import func
@@ -299,7 +345,8 @@ def get_analytics(db: Session = Depends(get_db)):
         "operation_loads": operation_count,
         "total_weight": total_weight,
         "rule_breakdown": rule_counts,
-        "district_performance": district_performance
+        "district_performance": district_performance,
+        "pending_72h_count": pending_72h
     }
 
 @app.get("/analytics/fast-track")
@@ -332,7 +379,11 @@ def get_fast_track_analytics(db: Session = Depends(get_db)):
 
     return {
         "total_recent": len(recent_identifiers),
-        "rule_breakdown": rule_counts
+        "rule_breakdown": rule_counts,
+        "pending_72h_count": db.query(models.Load).filter(
+            models.Load.status == "pending",
+            models.Load.arrival_at < threshold
+        ).count()
     }
 
 @app.get("/loads/export")
@@ -577,9 +628,15 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
             load.status = "pending" 
             load.updated_at = models.func.now()
             
-            if (row_idx + 1) % 2000 == 0:
-                db.flush()
+        db.commit()
         
+        # Track last upload time
+        now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        config_last = db.query(models.SystemConfig).filter(models.SystemConfig.key == "last_upload_at").first()
+        if config_last:
+            config_last.value = now_str
+        else:
+            db.add(models.SystemConfig(key="last_upload_at", value=now_str))
         db.commit()
         
         # Immediate Validation (Non-blocking)

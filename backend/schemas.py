@@ -25,6 +25,7 @@ class LoadCreate(LoadBase):
 class LoadResponse(LoadBase):
     id: int
     timestamp: datetime
+    arrival_at: Optional[datetime] = None
     error_message: Optional[str] = None
 
     class Config:

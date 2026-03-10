@@ -62,8 +62,8 @@ def validate_romaneio_context(loads: list):
                 load._temp_errors = errs
             
         # Pesos Duplicados (Mesma Visita) - REFINED
-        # Requirement: Both weights (PL and PLCD) repeat in another load, regardless of rateio
-        if load.weight_gross > 0.1 and load.weight_net > 0.1:
+        # Requirement: Both weights (PL and PLCD) repeat in another load, ONLY for non-rateio
+        if is_rateio_no and load.weight_gross > 0.1 and load.weight_net > 0.1:
             pair_key = (round(load.weight_gross, 2), round(load.weight_net, 2))
             if pair_counts[pair_key] > 1:
                 errs = getattr(load, "_temp_errors", [])

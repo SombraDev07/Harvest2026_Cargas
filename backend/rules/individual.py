@@ -16,9 +16,9 @@ def validate_individual_rules(load: models.Load):
 
     # RULE 4: Plate
     clean_plate = re.sub(r'[^A-Z0-9]', '', str(load.truck_plate).upper())
-    if not clean_plate or clean_plate == "" or clean_plate == "NA":
+    if not clean_plate or clean_plate == "" or clean_plate == "NA" or clean_plate == "N/A":
         errors.append("Placa inválida (não preenchida)")
-    elif len(clean_plate) != 7:
+    elif len(clean_plate) < 7:
         errors.append(f"Placa inválida ({len(clean_plate)} caracteres)")
 
     # RULE 5: Max weight

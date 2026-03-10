@@ -147,8 +147,8 @@ function FastRuleTable({ rule, totalCount }: { rule: typeof RULES[0], totalCount
                     <tr className="bg-white/[0.02] text-gray-400 uppercase tracking-tighter text-[9px]">
                       <th className="px-3 py-4 font-bold border-b border-white/5">COD</th>
                       <th className="px-3 py-4 font-bold border-b border-white/5">ID</th>
-                      <th className="px-3 py-4 font-bold border-b border-white/5">CHEGOU EM</th>
-                      <th className="px-3 py-4 font-bold border-b border-white/5">PLARA</th>
+                      <th className="px-3 py-4 font-bold border-b border-white/5 text-center">CHEGOU EM</th>
+                      <th className="px-3 py-4 font-bold border-b border-white/5">PLACA</th>
                       <th className="px-3 py-4 font-bold border-b border-white/5">PRODUTOR</th>
                       <th className="px-3 py-4 font-bold text-center border-b border-white/5">PL (kg)</th>
                       <th className="px-3 py-4 font-bold text-center border-b border-white/5">PLCD (kg)</th>
@@ -160,8 +160,8 @@ function FastRuleTable({ rule, totalCount }: { rule: typeof RULES[0], totalCount
                       <tr key={item.id} className="hover:bg-white/[0.02] transition-colors group">
                         <td className="px-3 py-3 text-red-400 font-bold">{item.visit_code || 'N/A'}</td>
                         <td className="px-3 py-3 text-white font-black">{item.load_identifier}</td>
-                        <td className="px-3 py-3 text-gray-500 font-mono text-[9px]">
-                           {new Date(item.updated_at + (item.updated_at.endsWith('Z') ? '' : 'Z')).toLocaleString('pt-BR')}
+                        <td className="px-3 py-3 text-gray-500 font-mono text-[9px] text-center">
+                           {item.arrival_at ? new Date(item.arrival_at + (item.arrival_at.endsWith('Z') ? '' : 'Z')).toLocaleString('pt-BR') : 'N/A'}
                         </td>
                         <td className="px-3 py-3">
                            <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-white font-mono">
@@ -277,10 +277,16 @@ export default function FastTrackPage() {
          <div className="glass p-8 rounded-[2.5rem] border-2 border-red-500/20 bg-red-600/[0.03] flex items-center justify-between col-span-1 md:col-span-2 shadow-2xl">
             <div className="flex flex-col gap-1">
                <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Alerta de Pendências de 72h</span>
-               <span className="text-5xl font-black text-white tabular-nums tracking-tighter">
-                  {loading ? '...' : (stats?.total_recent || 0)}
-               </span>
-               <span className="text-gray-400 text-[10px] font-bold uppercase tracking-tight">Entradas com erro que ainda não estão registradas no histórico</span>
+               <div className="flex items-baseline gap-4">
+                 <span className="text-5xl font-black text-white tabular-nums tracking-tighter">
+                    {loading ? '...' : (stats?.total_recent || 0)}
+                 </span>
+                 <div className="flex flex-col">
+                    <span className="text-rose-500 font-black text-sm tabular-nums">+{stats?.pending_72h_count || 0}</span>
+                    <span className="text-[8px] text-gray-500 uppercase font-black tracking-tighter line-clamp-1">Excedeu 72h</span>
+                 </div>
+               </div>
+               <span className="text-gray-400 text-[10px] font-bold uppercase tracking-tight line-clamp-1">Entradas críticas registradas no servidor</span>
             </div>
             <div className="w-16 h-16 rounded-full border-4 border-red-500/20 border-t-red-500 animate-spin" />
          </div>

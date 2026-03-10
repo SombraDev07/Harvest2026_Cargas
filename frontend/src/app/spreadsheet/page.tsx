@@ -36,8 +36,22 @@ export default function SpreadsheetPage() {
   const [shouldWipe, setShouldWipe] = useState(true);
   const [isRegisteringMemory, setIsRegisteringMemory] = useState(false);
   const [memoryMessage, setMemoryMessage] = useState("");
+  const [systemConfig, setSystemConfig] = useState<any>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const memoryInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchConfig = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/config`);
+      setSystemConfig(res.data);
+    } catch (e) {
+      console.error("Failed to fetch config", e);
+    }
+  };
+
+  useState(() => {
+    fetchConfig();
+  });
 
   const handleSystemReset = async () => {
     if (!confirm("⚠️ ATENÇÃO: Isso apagará todas as cargas, erros e análises atuais. O banco de IDs Registrados será preservado. Deseja continuar?")) return;
@@ -133,8 +147,19 @@ export default function SpreadsheetPage() {
     <div className="space-y-12">
       <header className="flex flex-col gap-2 relative">
         <div className="absolute -top-10 -left-10 w-40 h-40 bg-blue-500/10 blur-[80px] -z-10" />
-        <h2 className="text-4xl font-bold tracking-tight text-white italic">Inteligência de <span className="text-gray-500">Dados RPA</span></h2>
-        <p className="text-gray-400 max-w-xl">Motor de processamento centralizado. Gerencie distritos e valide grandes volumes em segundos.</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-4xl font-bold tracking-tight text-white italic">Inteligência de <span className="text-gray-500">Dados RPA</span></h2>
+            <p className="text-gray-400 max-w-xl">Motor de processamento centralizado. Gerencie distritos e valide grandes volumes em segundos.</p>
+          </div>
+          <div className="text-right">
+             <p className="text-[10px] font-black uppercase text-blue-500 tracking-widest mb-1">Status de Atualização</p>
+             <p className="text-xs font-bold text-white flex items-center gap-2 justify-end">
+                <Clock size={12} className="text-gray-600" />
+                Última Planilha: <span className="text-gray-400 font-mono">{systemConfig.last_upload_at || "N/A"}</span>
+             </p>
+          </div>
+        </div>
       </header>
 
       {/* Main Container */}

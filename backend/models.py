@@ -85,3 +85,9 @@ class KnownID(Base):
     id = Column(Integer, primary_key=True, index=True)
     load_identifier = Column(String, unique=True, index=True)
     registered_at = Column(DateTime, default=func.now())
+
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+
+    key = Column(String, primary_key=True, index=True)
+    value = Column(String)

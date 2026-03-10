@@ -114,10 +114,16 @@ export default function RootLayoutContent({
         </nav>
 
         <div className="p-6 space-y-2">
-          <button className="flex items-center gap-3 px-4 py-2.5 w-full text-xs font-semibold text-gray-500 hover:text-gray-300 transition-colors bg-white/[0.02] border border-white/5 rounded-xl">
-            <Settings size={16} />
-            CONFIGURAÇÕES
-          </button>
+          <Link href="/settings">
+            <button className={`flex items-center gap-3 px-4 py-2.5 w-full text-xs font-semibold transition-all border rounded-xl ${
+              pathname === "/settings" 
+                ? "text-white bg-blue-500/20 border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.1)]" 
+                : "text-gray-500 hover:text-gray-300 bg-white/[0.02] border-white/5"
+            }`}>
+              <Settings size={16} className={pathname === "/settings" ? "animate-spin-slow text-blue-400" : ""} />
+              CONFIGURAÇÕES
+            </button>
+          </Link>
           <div className="p-4 glass rounded-2xl mt-4 relative group">
              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 px-1">Sessão Ativa</p>
              <div className="flex items-center gap-3">
