@@ -520,7 +520,12 @@ def trigger_validation_old(district: str = None, db: Session = Depends(get_db)):
     return {"message": f"Validation batch completed for {district or 'all districts'}", "results": results}
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Session = Depends(get_db)):
+async def upload_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...), 
+    wipe: bool = False, 
+    db: Session = Depends(get_db)
+):
     if not file.filename.endswith(('.xlsx', '.csv')):
         raise HTTPException(status_code=400, detail="Invalid file format")
     
