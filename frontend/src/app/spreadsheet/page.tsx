@@ -37,8 +37,18 @@ export default function SpreadsheetPage() {
   const [isRegisteringMemory, setIsRegisteringMemory] = useState(false);
   const [memoryMessage, setMemoryMessage] = useState("");
   const [systemConfig, setSystemConfig] = useState<any>({});
+  const [systemStatus, setSystemStatus] = useState<any>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const memoryInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchStatus = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/system/status`);
+      setSystemStatus(res.data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const fetchConfig = async () => {
     try {
@@ -51,6 +61,7 @@ export default function SpreadsheetPage() {
 
   useState(() => {
     fetchConfig();
+    fetchStatus();
   });
 
   const handleSystemReset = async () => {
@@ -152,12 +163,19 @@ export default function SpreadsheetPage() {
             <h2 className="text-4xl font-bold tracking-tight text-white italic">Inteligência de <span className="text-gray-500">Dados RPA</span></h2>
             <p className="text-gray-400 max-w-xl">Motor de processamento centralizado. Gerencie distritos e valide grandes volumes em segundos.</p>
           </div>
-          <div className="text-right">
-             <p className="text-[10px] font-black uppercase text-blue-500 tracking-widest mb-1">Status de Atualização</p>
-             <p className="text-xs font-bold text-white flex items-center gap-2 justify-end">
-                <Clock size={12} className="text-gray-600" />
-                Última Planilha: <span className="text-gray-400 font-mono">{systemConfig.last_upload_at || "N/A"}</span>
-             </p>
+          <div className="text-right flex flex-col items-end gap-2">
+             <div>
+                <p className="text-[10px] font-black uppercase text-blue-500 tracking-widest mb-1">Status de Atualização</p>
+                <p className="text-xs font-bold text-white flex items-center gap-2 justify-end">
+                    <Clock size={12} className="text-gray-600" />
+                    Última Planilha: <span className="text-gray-400 font-mono">{systemStatus.last_upload_at || "N/A"}</span>
+                </p>
+             </div>
+             <div className="bg-white/[0.03] border border-white/5 rounded-xl px-4 py-2 flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
+                <span className="text-[10px] font-black uppercase text-gray-400 tracking-tight">Ativa:</span>
+                <span className="text-[10px] font-black text-white truncate max-w-[200px]">{systemStatus.active_filename || "Nenhuma"}</span>
+             </div>
           </div>
         </div>
       </header>

@@ -179,6 +179,22 @@ def register_load(load: schemas.RegisteredLoadCreate, db: Session = Depends(get_
     db.refresh(db_load)
     return db_load
 
+@app.get("/system/status")
+def get_system_status(db: Session = Depends(get_db)):
+    """Returns general system status including active spreadsheet."""
+    active_file = db.query(models.SystemConfig).filter(models.SystemConfig.key == "active_filename").first()
+    last_upload = db.query(models.SystemConfig).filter(models.SystemConfig.key == "last_upload_at").first()
+    
+    total_loads = db.query(models.Load).count()
+    memory_count = db.query(models.KnownID).count()
+    
+    return {
+        "active_filename": active_file.value if active_file else "Nenhuma planilha ativa",
+        "last_upload_at": last_upload.value if last_upload else "N/A",
+        "total_loads": total_loads,
+        "memory_count": memory_count
+    }
+
 @app.delete("/registered-loads/{load_id}")
 def delete_registered_load(load_id: int, db: Session = Depends(get_db)):
     db_load = db.query(models.RegisteredLoad).filter(models.RegisteredLoad.id == load_id).first()
@@ -631,15 +647,28 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
             load.status = "pending" 
             load.updated_at = models.func.now()
             
+            # --- AUTO-MEMORY REGISTRATION ---
+            # Automatically add this ID to KnownID (Memory) if not there
+            if is_new_id:
+                db.add(models.KnownID(load_identifier=load_id, registered_at=now))
+            
+            # Since we processed 2k rows, flush occasionally
+            if (row_idx + 1) % 2000 == 0:
+                db.flush()
+        
         db.commit()
         
-        # Track last upload time
+        # Track last upload time and ACTIVE FILENAME
         now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        config_last = db.query(models.SystemConfig).filter(models.SystemConfig.key == "last_upload_at").first()
-        if config_last:
-            config_last.value = now_str
-        else:
-            db.add(models.SystemConfig(key="last_upload_at", value=now_str))
+        
+        def set_config(key, val):
+            c = db.query(models.SystemConfig).filter(models.SystemConfig.key == key).first()
+            if c: c.value = val
+            else: db.add(models.SystemConfig(key=key, value=val))
+
+        set_config("last_upload_at", now_str)
+        set_config("active_filename", file.filename)
+        
         db.commit()
         
         # Immediate Validation (Non-blocking)
