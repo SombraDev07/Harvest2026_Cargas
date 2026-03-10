@@ -407,6 +407,7 @@ function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[
                     <td className="px-3 py-3 max-w-[200px] truncate text-gray-400 uppercase font-medium">{item.product || 'CARGA GERAL'}</td>
                     <td className="px-3 py-3 text-center text-gray-300">{(item.weight_gross || 0).toLocaleString()}</td>
                     <td className="px-3 py-3 text-center text-emerald-400 font-bold">{(item.weight_net || 0).toLocaleString()}</td>
+                    <td className="px-3 py-3 text-[10px] text-red-500/70 italic max-w-[150px] truncate">{item.error_message}</td>
                     <td className="px-3 py-3">
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button 
