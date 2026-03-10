@@ -116,9 +116,11 @@ export default function SpreadsheetPage() {
       const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
         params: { wipe: shouldWipe },
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 300000 // 5 minutes timeout for large files
+        timeout: 600000 // Increased to 10 minutes for very large files
       });
       setUploadResult(response.data);
+      await fetchStatus();
+      await fetchConfig();
     } catch (error: any) {
       console.error("Upload detail:", error);
       const detail = error.response?.data?.detail;
