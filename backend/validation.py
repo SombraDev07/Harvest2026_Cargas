@@ -33,6 +33,15 @@ def run_batch_validation(db: Session, district: str = None, limit: int = 1000000
     visits_to_audit = [r[0] for r in query.distinct().limit(limit).all()]
     total_batch_visits = len(visits_to_audit)
     
+    # 0. Fetch Config for dynamic rules
+    configs = db.query(models.SystemConfig).all()
+    config_dict = {c.key: c.value for c in configs}
+    # Ensure numeric types
+    try:
+        config_dict['rateio_delta_minutes'] = int(config_dict.get('rateio_delta_minutes', 50))
+    except:
+        config_dict['rateio_delta_minutes'] = 50
+
     results = {"success": 0, "error": 0}
     if not total_batch_visits: return results
 
@@ -68,8 +77,8 @@ def run_batch_validation(db: Session, district: str = None, limit: int = 1000000
             if vcode != "N/A":
                 # Ensure the group is sorted by time for context rules
                 group.sort(key=lambda x: parse_time_minutes(x.load_time))
-                validate_romaneio_context(group)
-                validate_rateio_groups(group)
+                validate_romaneio_context(group, config_dict)
+                validate_rateio_groups(group, config_dict)
         
         # 4. Individual Rules & Persistance
         all_new_ledger_entries = []

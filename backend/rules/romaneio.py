@@ -1,12 +1,13 @@
 from collections import Counter
 from rules.utils import extract_rom_parts, parse_time_minutes
 
-def validate_romaneio_context(loads: list):
+def validate_romaneio_context(loads: list, config: dict = None):
     """
     Consolidated batch rules: Rule 1 (Duplicates) and Rule 2 (Statistical Romaneios).
     Groups them by visit context.
     """
     if not loads: return
+    delta = config.get('rateio_delta_minutes', 20) if config else 20
     
     # 1. Identify predominant Length and Prefix (Modes) for Rule 2
     rom_data = []
@@ -103,8 +104,8 @@ def validate_romaneio_context(loads: list):
                     n_t = parse_time_minutes(neighbor.load_time)
                     
                     if (my_plate == n_plate and my_tech == n_tech and 
-                        my_t >= 0 and n_t >= 0 and abs(my_t - n_t) <= 20):
-                        existing_errors.append(f"Possível Rateio: Muito próximo de outro documento ({neighbor.doc_number}) - 20min")
+                        my_t >= 0 and n_t >= 0 and abs(my_t - n_t) <= delta):
+                        existing_errors.append(f"Possível Rateio: Muito próximo de outro documento ({neighbor.doc_number}) - {delta}min")
                         break
 
         # A. Numeric Jump (Delta > 500)

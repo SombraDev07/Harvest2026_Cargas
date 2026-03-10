@@ -1,6 +1,6 @@
 from rules.utils import parse_time_minutes, normalize_str
 
-def validate_rateio_groups(loads: list):
+def validate_rateio_groups(loads: list, config: dict = None):
     """
     Advanced Rateio Rules (Group Context):
     1. PLCD Integrity (Sum PLCD <= Sum PL, check 10kg diff)
@@ -9,6 +9,7 @@ def validate_rateio_groups(loads: list):
     4. Possible Rateio (marked NO but very close to another)
     """
     if not loads: return
+    delta = config.get('rateio_delta_minutes', 50) if config else 50
 
     # A. Initial Grouping: Visit + Plate
     plate_groups = {}
@@ -34,8 +35,8 @@ def validate_rateio_groups(loads: list):
                 t_prev = parse_time_minutes(prev.load_time)
                 t_curr = parse_time_minutes(curr.load_time)
                 
-                # Group by: same tech AND within 50 minutes
-                if (t_prev >= 0 and t_curr >= 0 and (t_curr - t_prev) <= 50 and 
+                # Group by: same tech AND within delta minutes
+                if (t_prev >= 0 and t_curr >= 0 and (t_curr - t_prev) <= delta and 
                     prev.technology == curr.technology):
                     current_sub.append(curr)
                 else:
@@ -66,24 +67,24 @@ def validate_rateio_groups(loads: list):
                                 l._temp_errors = errs
 
                 # RULE 2: Missing Partner (SIM Isolado)
-                # Logic: Marked SIM, but no other load with same plate/tech in 50min
+                # Logic: Marked SIM, but no other load with same plate/tech in delta
                 if count_sim == 1:
                     lone_rateio = next(l for l in sub if str(l.rateio).upper() == "SIM")
                     errs = getattr(lone_rateio, "_temp_errors", [])
-                    errs.append("Rateio sem parceiro: Marcado SIM mas não encontrado par na mesma placa/tempo (50min)")
+                    errs.append(f"Rateio sem parceiro: Marcado SIM mas não encontrado par na mesma placa/tempo ({delta}min)")
                     lone_rateio._temp_errors = errs
 
                 # ... [RULE 3: Tech Mismatch omitted] ...
 
                 # NEW RULE: Rateio Mesmo Produtor (Normalized)
-                # Logic: SIM + Placa + Tec + 50min + Mesmo Nome
+                # Logic: SIM + Placa + Tec + delta + Mesmo Nome
                 if count_sim >= 2:
                     producers_sim = [normalize_str(l.product) for l in sub if str(l.rateio).upper() == "SIM"]
                     if len(producers_sim) > 1 and len(set(producers_sim)) < len(producers_sim):
                         for l in sub:
                             if str(l.rateio).upper() == "SIM":
                                 errs = getattr(l, "_temp_errors", [])
-                                errs.append(f"Rateio mesma conta: PDR ({l.product}) repetido no grupo SIM (50min)")
+                                errs.append(f"Rateio mesma conta: PDR ({l.product}) repetido no grupo SIM ({delta}min)")
                                 l._temp_errors = errs
 
             # RULE 4: Possible Rateio
@@ -97,8 +98,11 @@ def validate_rateio_groups(loads: list):
                         my_t = parse_time_minutes(l.load_time)
                         for n in neighbors:
                             nt_t = parse_time_minutes(n.load_time)
-                            if my_t >= 0 and nt_t >= 0 and abs(my_t - nt_t) <= 20:
+                            # Using 20 as base or smaller portion of delta for Possible Rateio
+                            # Let's use config delta if provided, or default to 20
+                            p_delta = config.get('rateio_delta_minutes', 20) if config else 20
+                            if my_t >= 0 and nt_t >= 0 and abs(my_t - nt_t) <= p_delta:
                                 errs = getattr(l, "_temp_errors", [])
-                                errs.append(f"Possível Rateio: Muito próximo de outro documento ({n.doc_number})")
+                                errs.append(f"Possível Rateio: Muito próximo de outro documento ({n.doc_number}) - {p_delta}min")
                                 l._temp_errors = errs
                                 break
