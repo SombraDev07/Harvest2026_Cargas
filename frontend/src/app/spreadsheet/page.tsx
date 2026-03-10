@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { 
   FileUp, 
   FileSpreadsheet, 
@@ -59,10 +59,13 @@ export default function SpreadsheetPage() {
     }
   };
 
-  useState(() => {
-    fetchConfig();
-    fetchStatus();
-  });
+  useEffect(() => {
+    const init = async () => {
+      await fetchConfig();
+      await fetchStatus();
+    };
+    init();
+  }, []);
 
   const handleSystemReset = async () => {
     if (!confirm("⚠️ ATENÇÃO: Isso apagará todas as cargas, erros e análises atuais. O banco de IDs Registrados será preservado. Deseja continuar?")) return;

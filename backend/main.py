@@ -58,21 +58,25 @@ def run_migrations():
 
 @app.on_event("startup")
 def seed_user():
-    db = next(get_db())
-    # Seed/Update admin email to ensure login works
-    email = "BrunoHarvest2026@BureauVeritas.com"
-    pwd = "ChildrenOfLight123***"
-    
-    user = db.query(models.User).filter(models.User.username == email).first()
-    if not user:
-        user = models.User(username=email, password_hash=pwd, role="admin")
-        db.add(user)
-        print(f"--- [SEED] Admin {email} created ---")
-    else:
-        user.password_hash = pwd
-        print(f"--- [SEED] Admin {email} password updated/verified ---")
-    
-    db.commit()
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        # Seed/Update admin email to ensure login works
+        email = "BrunoHarvest2026@BureauVeritas.com"
+        pwd = "ChildrenOfLight123***"
+        
+        user = db.query(models.User).filter(models.User.username == email).first()
+        if not user:
+            user = models.User(username=email, password_hash=pwd, role="admin")
+            db.add(user)
+            print(f"--- [SEED] Admin {email} created ---")
+        else:
+            user.password_hash = pwd
+            print(f"--- [SEED] Admin {email} password updated/verified ---")
+        
+        db.commit()
+    finally:
+        db.close()
 
 @app.post("/login", response_model=schemas.LoginResponse)
 def login(req: schemas.LoginRequest, db: Session = Depends(get_db)):
@@ -686,11 +690,16 @@ async def upload_file(file: UploadFile = File(...), wipe: bool = False, db: Sess
         db.commit()
         
         # Immediate Validation (Non-blocking)
-        try:
-            validation.run_batch_validation(db, limit=100000)
-        except Exception as audit_err:
-            print(f"AUTO-AUDIT WARNING: {audit_err}")
-            
+        def run_validation_safely():
+            from database import SessionLocal
+            val_db = SessionLocal()
+            try:
+                validation.validate_spreadsheet(val_db, wipe)
+            finally:
+                val_db.close()
+        
+        background_tasks.add_task(run_validation_safely)
+
         return {
             "message": "Cargas processadas com sucesso!",
             "total_rows": len(df),
