@@ -699,7 +699,11 @@ async def upload_file(
             from database import SessionLocal
             val_db = SessionLocal()
             try:
-                validation.validate_spreadsheet(val_db, wipe)
+                print("--- [BACKGROUND] Starting automation audit after upload ---")
+                validation.run_batch_validation(val_db)
+                print("--- [BACKGROUND] Automation audit completed successfully ---")
+            except Exception as e:
+                print(f"--- [BACKGROUND ERROR] Validation crashed: {e} ---")
             finally:
                 val_db.close()
         
