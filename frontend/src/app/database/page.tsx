@@ -28,21 +28,25 @@ export default function DatabasePage() {
   const [registeredLoads, setRegisteredLoads] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
-  const [viewMode, setViewMode] = useState<"all" | "registered">("registered");
+  const [viewMode, setViewMode] = useState<"all" | "registered" | "memory">("all");
+  const [memoryIDs, setMemoryIDs] = useState<any[]>([]);
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
       if (viewMode === "all") {
         const [loadsRes, statsRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/loads?limit=50`),
+          axios.get(`${API_BASE_URL}/loads?limit=100`),
           axios.get(`${API_BASE_URL}/analytics`)
         ]);
         setLoads(loadsRes.data);
         setStats(statsRes.data);
-      } else {
+      } else if (viewMode === "registered") {
         const res = await axios.get(`${API_BASE_URL}/registered-loads`);
         setRegisteredLoads(res.data);
+      } else if (viewMode === "memory") {
+        const res = await axios.get(`${API_BASE_URL}/system/memory?limit=300`);
+        setMemoryIDs(res.data);
       }
     } catch (error) {
       console.error("Failed to fetch data", error);
@@ -61,6 +65,16 @@ export default function DatabasePage() {
     }
   };
 
+  const handleDeleteMemory = async (loadId: string) => {
+    if (!confirm("Remover este ID da Memória RPA? Ele voltará a ser considerado 'Novo' no próximo upload.")) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/system/memory/${loadId}`);
+      fetchData();
+    } catch (error) {
+       alert("Falha ao excluir da memória");
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, [viewMode]);
@@ -75,7 +89,9 @@ export default function DatabasePage() {
           <p className="text-gray-400 mt-2 max-w-xl">
             {viewMode === "all" 
               ? `Gerenciamento centralizado de auditoria para ${stats?.total_loads?.toLocaleString() || "500.000+"} registros.`
-              : "Lista de IDs registrados manualmente no banco para serem ignorados na auditoria."
+              : viewMode === "registered"
+                ? "Lista de IDs marcados como OK manualmente (Exclusões de Auditoria)."
+                : "Base de conhecimento histórica. IDs registrados aqui NÃO geram alerta de urgência."
             }
           </p>
         </div>
@@ -83,16 +99,22 @@ export default function DatabasePage() {
            {/* View Selection Toggle */}
            <div className="p-1 glass-nav rounded-2xl flex gap-1 mr-4">
                <button 
-                onClick={() => setViewMode("registered")}
-                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === "registered" ? "bg-blue-600 text-white shadow-lg" : "text-gray-500 hover:text-gray-300"}`}
-              >
-                IDs no Banco
-              </button>
-              <button 
                 onClick={() => setViewMode("all")}
                 className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === "all" ? "bg-blue-600 text-white shadow-lg" : "text-gray-500 hover:text-gray-300"}`}
               >
-                Cargas Totais
+                Auditoria Atual
+              </button>
+              <button 
+                onClick={() => setViewMode("registered")}
+                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === "registered" ? "bg-orange-600 text-white shadow-lg" : "text-gray-500 hover:text-gray-300"}`}
+              >
+                Exclusões (OK)
+              </button>
+              <button 
+                onClick={() => setViewMode("memory")}
+                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === "memory" ? "bg-emerald-600 text-white shadow-lg" : "text-gray-500 hover:text-gray-300"}`}
+              >
+                Memória RPA
               </button>
            </div>
 
@@ -118,7 +140,7 @@ export default function DatabasePage() {
                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-blue-400 transition-colors" size={18} />
                <input 
                  type="text" 
-                 placeholder={viewMode === "all" ? "Pesquisar por placas, IDs ou produtor..." : "Pesquisar IDs registrados..."}
+                  placeholder={viewMode === "all" ? "Pesquisar por placas, IDs ou produtor..." : viewMode === "memory" ? "Pesquisar na memória histórica..." : "Pesquisar IDs registrados..."}
                  className="w-full bg-white/[0.03] border border-white/10 rounded-2xl pl-12 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/40 transition-all placeholder:text-gray-600"
                  value={searchTerm}
                  onChange={(e) => setSearchTerm(e.target.value)}
@@ -132,7 +154,7 @@ export default function DatabasePage() {
           </div>
           
           <div className="flex items-center gap-4 text-xs font-bold text-gray-600 uppercase tracking-widest">
-             <span>ResultadosLocal: <span className="text-gray-300">{(viewMode === "all" ? loads : registeredLoads).length}</span></span>
+             <span>Resultados Local: <span className="text-gray-300">{(viewMode === "all" ? loads : viewMode === "registered" ? registeredLoads : memoryIDs).length}</span></span>
           </div>
         </div>
 
@@ -154,9 +176,9 @@ export default function DatabasePage() {
                       <th className="px-6 py-5 font-bold">COLUNA (STATUS)</th>
                       <th className="px-6 py-5 font-bold text-center">USUÁRIO</th>
                       <th className="px-6 py-5 font-bold text-center">DATA</th>
-                      <th className="px-8 py-5 font-bold text-orange-400">MOTIVO (ANÁLISE)</th>
+                      <th className="px-8 py-5 font-bold">AÇÕES</th>
                     </>
-                  ) : (
+                  ) : viewMode === "registered" ? (
                     <>
                       <th className="px-8 py-5 font-bold">CÓD (VISITA)</th>
                       <th className="px-8 py-5 font-bold">ID (LOTE)</th>
@@ -164,6 +186,13 @@ export default function DatabasePage() {
                       <th className="px-8 py-5 font-bold text-center">USUÁRIO</th>
                       <th className="px-8 py-5 font-bold text-center">DATA</th>
                       <th className="px-8 py-5 font-bold text-emerald-400">MOTIVO</th>
+                      <th className="px-8 py-5 font-bold text-center">AÇÕES</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="px-8 py-5 font-bold">LOTE IDENTIFIER (ID)</th>
+                      <th className="px-8 py-5 font-bold text-center">REGISTRADO EM</th>
+                      <th className="px-8 py-5 font-bold">ORIGEM</th>
                       <th className="px-8 py-5 font-bold text-center">AÇÕES</th>
                     </>
                   )}
@@ -201,8 +230,8 @@ export default function DatabasePage() {
                          </p>
                       </td>
                     </motion.tr>
-                  ))
-                ) : (
+                    ))
+                ) : viewMode === "registered" ? (
                   registeredLoads.filter(rl => 
                     rl.load_identifier.includes(searchTerm) || 
                     rl.visit_code.includes(searchTerm)
@@ -223,7 +252,7 @@ export default function DatabasePage() {
                       </td>
                       <td className="px-8 py-5 text-center text-blue-200/60 font-black text-[10px] uppercase">{rl.user_name}</td>
                       <td className="px-8 py-5 text-center text-gray-500 text-[10px] font-bold">
-                         {new Date(rl.timestamp + (rl.timestamp.endsWith('Z') ? '' : 'Z')).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                         {new Date(rl.timestamp + (rl.timestamp.endsWith('Z') ? '' : 'Z')).toLocaleString('pt-BR')}
                       </td>
                       <td className="px-8 py-5">
                          <div className="bg-emerald-500/5 border border-emerald-500/10 px-4 py-2 rounded-xl text-emerald-400/90 text-xs font-medium italic">
@@ -234,11 +263,36 @@ export default function DatabasePage() {
                          <button 
                            onClick={() => handleDeleteRegistered(rl.id)}
                            className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-all border border-red-500/10"
-                           title="Excluir Registro"
                          >
                             <Trash2 size={16} />
                          </button>
                       </td>
+                    </motion.tr>
+                  ))
+                ) : (
+                  memoryIDs.filter(m => m.load_identifier.includes(searchTerm)).map((m, idx) => (
+                     <motion.tr 
+                      key={m.load_identifier} 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: idx * 0.01 }}
+                      className="group hover:bg-white/[0.03] transition-all"
+                    >
+                       <td className="px-8 py-5 text-white font-black">{m.load_identifier}</td>
+                       <td className="px-8 py-5 text-center text-gray-500 text-[10px] font-bold font-mono">
+                          {new Date(m.registered_at + (m.registered_at.endsWith('Z') ? '' : 'Z')).toLocaleString('pt-BR')}
+                       </td>
+                       <td className="px-8 py-5">
+                          <span className="px-3 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[9px] font-black uppercase">PROCESSADO PELO RPA</span>
+                       </td>
+                       <td className="px-8 py-5 text-center">
+                         <button 
+                           onClick={() => handleDeleteMemory(m.load_identifier)}
+                           className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-all border border-red-500/10"
+                         >
+                            <Trash2 size={16} />
+                         </button>
+                       </td>
                     </motion.tr>
                   ))
                 )}

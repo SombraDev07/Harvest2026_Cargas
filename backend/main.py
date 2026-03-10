@@ -195,6 +195,20 @@ def get_system_status(db: Session = Depends(get_db)):
         "memory_count": memory_count
     }
 
+@app.get("/system/memory")
+def get_system_memory(db: Session = Depends(get_db), limit: int = 200):
+    """Returns the list of IDs registered in the RPA Memory."""
+    return db.query(models.KnownID).order_by(models.KnownID.registered_at.desc()).limit(limit).all()
+
+@app.delete("/system/memory/{load_identifier}")
+def delete_memory_id(load_identifier: str, db: Session = Depends(get_db)):
+    """Allows manual removal of an ID from memory."""
+    item = db.query(models.KnownID).filter(models.KnownID.load_identifier == load_identifier).first()
+    if not item: raise HTTPException(404, "ID not found in memory")
+    db.delete(item)
+    db.commit()
+    return {"message": "ID removido da memória RPA"}
+
 @app.delete("/registered-loads/{load_id}")
 def delete_registered_load(load_id: int, db: Session = Depends(get_db)):
     db_load = db.query(models.RegisteredLoad).filter(models.RegisteredLoad.id == load_id).first()
