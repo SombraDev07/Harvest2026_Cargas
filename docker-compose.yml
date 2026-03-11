@@ -29,7 +29,7 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_URL: http://3.96.78.131:8000
+        NEXT_PUBLIC_API_URL: ""
     container_name: harvest_frontend
     restart: always
     depends_on:

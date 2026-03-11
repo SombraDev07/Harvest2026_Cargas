@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : "http://127.0.0.1:8000");
 
 const RULES = [
   { id: 1, name: "Romaneios Duplicados", filter: "duplicado", icon: "📋", color: "text-red-400", statsKey: "duplicado", description: "Detecta documentos com o mesmo número para o mesmo produtor nesta visita (exceto em rateios)." },
