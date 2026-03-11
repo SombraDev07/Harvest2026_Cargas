@@ -1,4 +1,4 @@
-onst romaneioErrors = new Map(); // ID da carga -> Array de erros
+const romaneioErrors = new Map(); // ID da carga -> Array de erros
 
         if (romData.length > 0) {
             // 1. Identifica o Comprimento Predominante (Moda)
@@ -131,3 +131,4 @@ onst romaneioErrors = new Map(); // ID da carga -> Array de erros
 
             const groupKey = chargeToGroup[carga.id];
             const groupData = groups[groupKey];
+        }); 
