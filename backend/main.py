@@ -180,7 +180,7 @@ def export_all_xlsx(district: str = None, db: Session = Depends(get_db)):
                 groups = defaultdict(list)
                 for item in results:
                     l = item[0]
-                    msg = item._mapping.get('ledger_message')
+                    msg = item[1] if (isinstance(item, tuple) or type(item).__name__ == 'Row') and len(item) > 1 else None
                     # Group by Visit Code + Plate + Time Window (50 min as in SQL)
                     # We'll use the visit_code and truck_plate as primary keys
                     # Since we don't have arrival_at here, we rely on visit_code which is unique per visit
@@ -218,7 +218,7 @@ def export_all_xlsx(district: str = None, db: Session = Depends(get_db)):
                 # Standard linear export
                 for item in results:
                     l = item[0]
-                    msg = item._mapping.get('ledger_message')
+                    msg = item[1] if (isinstance(item, tuple) or type(item).__name__ == 'Row') and len(item) > 1 else None
                     data.append({
                         "COD": l.visit_code,
                         "DISTRITO": l.district,
@@ -681,9 +681,9 @@ def export_rule_xlsx(rule_filter: str, error_type: str = None, district: str = N
     data = []
     for item in results:
         # Handle both Row objects (from join) and direct Model objects
-        if hasattr(item, '_mapping'):
+        if isinstance(item, tuple) or type(item).__name__ == 'Row':
             l = item[0]
-            msg = item._mapping.get('ledger_message')
+            msg = item[1] if len(item) > 1 else None
         else:
             l = item
             msg = l.error_message
