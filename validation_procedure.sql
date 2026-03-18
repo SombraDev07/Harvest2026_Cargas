@@ -80,18 +80,31 @@ BEGIN
 
     UNION ALL
 
-    -- R3: CAMPOS OBRIGATÓRIOS
-    (SELECT load_identifier, district, 'campos',
-        CASE 
-            WHEN (NULLIF(TRIM(product), '') IS NULL OR UPPER(TRIM(product)) IN ('N/A', 'NA')) THEN 'Produtor não preenchido'
-            WHEN (doc_clean = '' OR doc_clean IN ('NA', 'N/A')) THEN 'Romaneio não preenchido'
-            WHEN (wg IS NULL OR wn IS NULL) THEN 'Pesos não preenchidos'
-            ELSE 'Campo obrigatório vazio'
-        END, v_now
+    -- R3: CAMPO INVÁLIDO - Produtor (NULL/NA)
+    (SELECT load_identifier, district, 'campos', 'Produtor não preenchido', v_now
     FROM base_data_tmp
-    WHERE (NULLIF(TRIM(product), '') IS NULL OR UPPER(TRIM(product)) IN ('N/A', 'NA'))
-       OR (doc_clean = '' OR doc_clean IN ('NA', 'N/A'))
-       OR (wg IS NULL OR wn IS NULL))
+    WHERE (NULLIF(TRIM(product), '') IS NULL OR UPPER(TRIM(product)) IN ('N/A', 'NA')))
+    
+    UNION ALL
+
+    -- R3: CAMPO INVÁLIDO - Produtor (Contém Números)
+    (SELECT load_identifier, district, 'campos', 'Nome do produtor contém números', v_now
+    FROM base_data_tmp
+    WHERE product ~ '[0-9]')
+
+    UNION ALL
+
+    -- R3: CAMPO INVÁLIDO - Romaneio
+    (SELECT load_identifier, district, 'campos', 'Romaneio não preenchido', v_now
+    FROM base_data_tmp
+    WHERE (doc_clean = '' OR doc_clean IN ('NA', 'N/A')))
+
+    UNION ALL
+
+    -- R3: CAMPO INVÁLIDO - Pesos
+    (SELECT load_identifier, district, 'campos', 'Pesos não preenchidos', v_now
+    FROM base_data_tmp
+    WHERE (wg IS NULL OR wn IS NULL))
 
     UNION ALL
 
@@ -111,14 +124,15 @@ BEGIN
 
     -- R6: PESOS FICTÍCIOS
     (SELECT load_identifier, district, 'peso_ficticio', 'Peso fictício (' || floor(wg)::TEXT || ')', v_now
-    FROM base_data_tmp WHERE floor(wg)::TEXT IN ('999','1000','1111','2222','3333','4444','5555')
-       OR floor(wn)::TEXT IN ('999','1000','1111','2222','3333','4444','5555'))
+    FROM base_data_tmp WHERE floor(wg)::TEXT IN ('999','1000','1111','1222','1234','1333','1444','1555','1666','1777','1888','1999','2000','2111','2222','2333','2444','2555','2666','2777','2888','2999','3000','3222','3333','3444','3456','3555','3666','3777','3888','3999','4000','4333','4444','4555','4567','4666','4777','4888','4999','5000','5555','5678','5999','6000','6666','6789','6999','7000','7777','7999','8000','8888','8999','9000','9999','10000','10999','11111','12222','12345','13333','14444','14999','15000','15555','16666','17777','18888','19999','20000','21111','22222','23333','23456','24444','24999','25000','25555','26666','27777','28888','29999','30000','31111','32222','33333','34444','34567','34999','35000','35555','36666','37777','38888','39999','40000','41111','42222','43333','44444','44999','45000','45555','46666','47777','48888','49999','50000')
+       OR floor(wn)::TEXT IN ('999','1000','1111','1222','1234','1333','1444','1555','1666','1777','1888','1999','2000','2111','2222','2333','2444','2555','2666','2777','2888','2999','3000','3222','3333','3444','3456','3555','3666','3777','3888','3999','4000','4333','4444','4555','4567','4666','4777','4888','4999','5000','5555','5678','5999','6000','6666','6789','6999','7000','7777','7999','8000','8888','8999','9000','9999','10000','10999','11111','12222','12345','13333','14444','14999','15000','15555','16666','17777','18888','19999','20000','21111','22222','23333','23456','24444','24999','25000','25555','26666','27777','28888','29999','30000','31111','32222','33333','34444','34567','34999','35000','35555','36666','37777','38888','39999','40000','41111','42222','43333','44444','44999','45000','45555','46666','47777','48888','49999','50000'))
 
     UNION ALL
 
-    -- R7: DESCONTO EXCESSIVO
+    -- R7: DESCONTO EXCESSIVO (Individual - apenas se NÃO for rateio)
     (SELECT load_identifier, district, 'desconto', 'Desconto excessivo (' || ROUND(((wg - wn) / NULLIF(wg,0) * 100)::NUMERIC, 1) || '%)', v_now
-    FROM base_data_tmp WHERE wg > 0 AND wn > 0 AND (wg - wn) / wg > 0.25)
+    FROM base_data_tmp 
+    WHERE wg > 0 AND wn > 0 AND (wg - wn) / wg > 0.25 AND UPPER(TRIM(rateio)) != 'SIM')
 
     UNION ALL
 
@@ -154,7 +168,7 @@ BEGIN
     UNION ALL
 
     -- R11: POSSIVEL RATEIO (AVISO 20MIN)
-    (SELECT load_identifier, district, 'possivel_rateio', 'Possível rateio (Aviso 20min)', v_now
+    (SELECT load_identifier, district, 'rateio_possivel', 'Possível rateio (Aviso 20min)', v_now
     FROM (
         SELECT load_identifier, district, rateio, COUNT(*) OVER (PARTITION BY visit_clean, plate_clean, technology, (time_mins / 20)) as p_cnt
         FROM base_data_tmp WHERE plate_clean != '' AND UPPER(TRIM(rateio)) = 'NÃO'
@@ -168,15 +182,19 @@ BEGIN
         SELECT load_identifier, district, rateio, COUNT(*) OVER (PARTITION BY visit_clean, wg, wn) as cnt
         FROM base_data_tmp WHERE wg > 0 AND wn > 0
     ) r WHERE cnt > 1 AND UPPER(TRIM(rateio)) != 'SIM')
-
     UNION ALL
-
-    -- R13: RATEIO > MESMO PRODUTOR
-    (SELECT load_identifier, district, 'rateio_produtor', 'Rateio para o mesmo produtor em visita', v_now
-    FROM (
-        SELECT load_identifier, district, COUNT(*) OVER (PARTITION BY visit_clean, plate_clean, (time_mins / 50), TRIM(product)) as p_cnt
-        FROM base_data_tmp WHERE UPPER(TRIM(rateio)) = 'SIM' AND product IS NOT NULL
-    ) r WHERE p_cnt > 1);
+    -- R14: DUPLICIDADE ENTRE VISITAS DIFERENTES (COD/COD)
+    -- Detecta se (DOC, PL, PLCD) repetem em códigos de visita diferentes
+    (SELECT b1.load_identifier, b1.district, 'duplicidade_cod', 'Duplicidade COD/COD: Mesmo Doc e Pesos em visita diferente', v_now
+     FROM base_data_tmp b1
+     WHERE EXISTS (
+         SELECT 1 FROM base_data_tmp b2 
+         WHERE b1.doc_clean = b2.doc_clean 
+           AND b1.wg = b2.wg 
+           AND b1.wn = b2.wn
+           AND b1.visit_clean != b2.visit_clean
+           AND b1.doc_clean != ''
+     ));
 
     -- 6. MIGRATE TO PRODUCTION
     INSERT INTO loads (

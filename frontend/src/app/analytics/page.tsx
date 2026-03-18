@@ -26,18 +26,18 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 const RULES = [
   { id: 1, name: "Romaneios Duplicados", filter: "duplicado", icon: "📋", color: "text-red-400", statsKey: "duplicado", description: "Detecta documentos com o mesmo número para o mesmo produtor nesta visita (exceto em rateios)." },
   { id: 2, name: "Romaneio fora de padrão", filter: "padrão", icon: "🔍", color: "text-orange-400", statsKey: "padrao", description: "Identifica romaneios que divergem do padrão de prefixo ou quantidade de dígitos predominante no grupo." },
-  { id: 3, name: "Campos Obrigatórios", filter: "não preenchido", icon: "❗", color: "text-amber-400", statsKey: "campos", description: "Verifica se campos essenciais como Produtor, Romaneio ou Pesos estão preenchidos na planilha." },
+  { id: 3, name: "Campo Inválido", filter: "não preenchido", icon: "❗", color: "text-amber-400", statsKey: "campos", description: "Detecta campos vazios ou dados inconsistentes, como nomes de produtores contendo números." },
   { id: 4, name: "Placa Inválida", filter: "Placa inválida", icon: "🚗", color: "text-rose-400", statsKey: "placa", description: "Valida se a placa segue o formato Mercosul ou antigo e se não está vazia." },
   { id: 5, name: "Excesso de Peso", filter: "acima do limite", icon: "⚖️", color: "text-purple-400", statsKey: "excesso_peso", description: "Detecta cargas individuais que ultrapassam o limite técnico ou legal permitido (ex: 52k kg)." },
   { id: 6, name: "Peso Fictício", filter: "peso fictício", icon: "🔢", color: "text-pink-400", statsKey: "peso_ficticio", description: "Identifica pesos terminados em padrões como 000 ou 999, indicando possível preenchimento manual." },
-  { id: 7, name: "Desconto Excessivo (>25%)", filter: "Desconto excessivo", icon: "📉", color: "text-yellow-400", statsKey: "desconto", description: "Detecta cargas onde a quebra (Peso Bruto - Líquido) excede 25%. Para rateios, calcula a média do grupo (total bruto vs total líquido)." },
+  { id: 7, name: "Desconto Excessivo (>25%)", filter: "Desconto excessivo", icon: "📉", color: "text-yellow-400", statsKey: "desconto", description: "Detecta cargas individuais (NÃO rateio) onde a quebra (Peso Bruto - Líquido) excede 25%." },
   { id: 8, name: "Rateio: Peso Inválido (PLCD > PL)", filter: "Divergência Grupo Rateio", icon: "⚖️", color: "text-blue-400", statsKey: "rateio_peso", description: "Valida se a soma dos pesos com desconto (PLCD) é superior à soma dos pesos líquidos (PL) no grupo de rateio." },
   { id: 9, name: "Rateio: Sem Parceiro (SIM isolado)", filter: "Rateio sem parceiro", icon: "👤", color: "text-indigo-400", statsKey: "rateio_parceiro", description: "Cargas marcadas com Rateio SIM que não possuem outro parceiro no mesmo grupo de 50 minutos." },
   { id: 10, name: "Rateio: Tecnologias Diferentes", filter: "Regra Rateio 3", icon: "🧬", color: "text-cyan-400", statsKey: "rateio_tech", description: "Identifica grupos de rateio onde as cargas possuem tecnologias de pesagem divergentes no cadastro." },
   { id: 11, name: "Possível Rateio (Aviso 20min)", filter: "Possível Rateio", icon: "🔔", color: "text-sky-400", statsKey: "rateio_possivel", description: "Alerta para cargas de mesma placa/tech pesadas com menos de 20min de intervalo, mas sem marcação de rateio." },
   { id: 12, name: "Pesos Duplicados (Mesma Visita)", filter: "Peso duplicado", icon: "👯", color: "text-emerald-400", statsKey: "peso_duplicado", description: "Detecta cargas onde o PAR de pesos (Líquido e Líquido com Desconto) se repete na mesma visita, independentemente de ser rateio ou não." },
   { id: 13, name: "Rateio: Mesmo Produtor", filter: "Rateio mesma conta", icon: "👤", color: "text-violet-400", statsKey: "rateio_mesmo_pdr", description: "Detecta grupos de rateio onde o produtor é o mesmo para todas as cargas, o que é um uso incorreto." },
-  { id: 14, name: "Rateio: Desconto Excessivo", filter: "rateio_desconto", icon: "📉", color: "text-orange-500", statsKey: "rateio_desconto", description: "Detecta grupos de rateio onde a quebra total (soma do PL vs soma do PLCD) excede 25%." },
+  { id: 14, name: "Duplicidade COD/COD", filter: "Duplicidade Visita", icon: "🔄", color: "text-orange-500", statsKey: "duplicidade_cod", description: "Detecta cargas com o mesmo Romaneio e Pesos (PL e PLCD) que foram registradas em códigos de visita DIFERENTES." },
 ];
 
 function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[0], totalCount?: number, selectedDistrict: string }) {
@@ -513,6 +513,27 @@ export default function AnalyticsPage() {
     }
   };
 
+  const downloadAllXLSX = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/loads/export-all`, {
+        params: {
+          district: selectedDistrict !== 'GERAL' ? selectedDistrict : undefined,
+        },
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Auditoria_Consolidada_${selectedDistrict}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao baixar planilha consolidada.");
+    }
+  };
+
   return (
     <div className="space-y-10 pb-20">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 relative">
@@ -535,6 +556,13 @@ export default function AnalyticsPage() {
             className="flex items-center gap-2 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest border border-blue-500/20 transition-all"
           >
             <Upload size={18} /> Importar IDs
+          </button>
+
+          <button
+            onClick={downloadAllXLSX}
+            className="flex items-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest border border-emerald-500/20 transition-all shadow-lg shadow-emerald-500/5 group"
+          >
+            <FileSpreadsheet size={18} className="group-hover:scale-110 transition-transform" /> Exportar Tudo (.xlsx)
           </button>
           <input
             id="import-reg-ids"

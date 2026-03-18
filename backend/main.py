@@ -126,6 +126,143 @@ def login(req: schemas.LoginRequest, db: Session = Depends(get_db)):
         token="SIMULATED-JWT-TOKEN"
     )
 
+@app.get("/loads/export-all")
+def export_all_xlsx(district: str = None, db: Session = Depends(get_db)):
+    from sqlalchemy import exists, and_
+    
+    # Define all 14 official rules with their internal types and display names
+    RULES_FOR_EXPORT = [
+        {"name": "Romaneios Duplicados", "type": "duplicado"},
+        {"name": "Fora de Padrão", "type": "padrao"},
+        {"name": "Campo Inválido", "type": "campos"},
+        {"name": "Placa Inválida", "type": "placa"},
+        {"name": "Excesso de Peso", "type": "excesso_peso"},
+        {"name": "Peso Fictício", "type": "peso_ficticio"},
+        {"name": "Desconto Excessivo", "type": "desconto"},
+        {"name": "Rateio Peso Inválido", "type": "rateio_peso"},
+        {"name": "Rateio Sem Parceiro", "type": "rateio_parceiro"},
+        {"name": "Rateio Tech Diferente", "type": "rateio_tech"},
+        {"name": "Possível Rateio", "type": "rateio_possivel"},
+        {"name": "Pesos Duplicados", "type": "peso_duplicado"},
+        {"name": "Rateio Mesmo Produtor", "type": "rateio_mesmo_pdr"},
+        {"name": "Duplicidade COD/COD", "type": "duplicidade_cod"}
+    ]
+    
+    output = io.BytesIO()
+    cols = ["COD", "DISTRITO", "ID", "PLACA", "TECNOLOGIA", "PRODUTOR", "DOC", "PL (KG)", "PLCD (KG)", "OBS / INCONSISTÊNCIA"]
+    
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        for rule in RULES_FOR_EXPORT:
+            # Consistent Query Logic with /loads and /loads/export
+            query = db.query(models.Load)\
+                      .join(models.ErrorLedger, models.Load.load_identifier == models.ErrorLedger.load_identifier)\
+                      .filter(models.ErrorLedger.error_type == rule["type"])\
+                      .add_columns(models.ErrorLedger.error_message.label("ledger_message"))
+            
+            if district and district != 'GERAL':
+                query = query.filter(models.Load.district == district)
+                
+            # Exclude resolved
+            resolved_stmt = exists().where(
+                and_(
+                    models.RegisteredLoad.load_identifier == models.Load.load_identifier,
+                    models.RegisteredLoad.error_type == rule["type"]
+                )
+            )
+            query = query.filter(~resolved_stmt)
+            
+            results = query.all()
+            
+            data = []
+            if rule["type"] == "rateio_peso":
+                # Special handling for Rateio grouping
+                from collections import defaultdict
+                groups = defaultdict(list)
+                for item in results:
+                    l = item[0]
+                    msg = item._mapping.get('ledger_message')
+                    # Group by Visit Code + Plate + Time Window (50 min as in SQL)
+                    # We'll use the visit_code and truck_plate as primary keys
+                    # Since we don't have arrival_at here, we rely on visit_code which is unique per visit
+                    group_key = (l.visit_code, l.truck_plate)
+                    groups[group_key].append((l, msg))
+                
+                for (vcode, plate), items in groups.items():
+                    group_pl = 0
+                    group_plcd = 0
+                    for l, msg in items:
+                        group_pl += (l.weight_gross or 0)
+                        group_plcd += (l.weight_net or 0)
+                        data.append({
+                            "COD": l.visit_code,
+                            "DISTRITO": l.district,
+                            "ID": l.load_identifier,
+                            "PLACA": l.truck_plate,
+                            "TECNOLOGIA": l.technology,
+                            "PRODUTOR": l.product,
+                            "DOC": l.doc_number,
+                            "PL (KG)": l.weight_gross,
+                            "PLCD (KG)": l.weight_net,
+                            "OBS / INCONSISTÊNCIA": msg
+                        })
+                    # Add Summary Line for Group
+                    data.append({
+                        "COD": "", "DISTRITO": "", "ID": "", "PLACA": "", "TECNOLOGIA": "", 
+                        "PRODUTOR": "TOTAL DO GRUPO:", "DOC": "", 
+                        "PL (KG)": group_pl, "PLCD (KG)": group_plcd, 
+                        "OBS / INCONSISTÊNCIA": "Inconsistência de Grupo Detectada"
+                    })
+                    # Add Spacing Line
+                    data.append({k: "" for k in cols})
+            else:
+                # Standard linear export
+                for item in results:
+                    l = item[0]
+                    msg = item._mapping.get('ledger_message')
+                    data.append({
+                        "COD": l.visit_code,
+                        "DISTRITO": l.district,
+                        "ID": l.load_identifier,
+                        "PLACA": l.truck_plate,
+                        "TECNOLOGIA": l.technology,
+                        "PRODUTOR": l.product,
+                        "DOC": l.doc_number,
+                        "PL (KG)": l.weight_gross,
+                        "PLCD (KG)": l.weight_net,
+                        "OBS / INCONSISTÊNCIA": msg
+                    })
+            
+            df = pd.DataFrame(data, columns=cols)
+            # Excel sheet name limit (31 chars) and invalid chars cleaning
+            sheet_name = rule["name"][:31].replace(":", "").replace("/", "").replace("\\", "").replace("?", "").replace("*", "").replace("[", "").replace("]", "")
+            df.to_excel(writer, index=False, sheet_name=sheet_name)
+            
+            # Apply formatting and AutoFilter
+            worksheet = writer.sheets[sheet_name]
+            if not df.empty:
+                # Summary line formatting (bold)
+                bold_fmt = writer.book.add_format({'bold': True, 'bg_color': '#F2F2F2'})
+                for row_idx, row_data in enumerate(data):
+                    if row_data.get("PRODUTOR") == "TOTAL DO GRUPO:":
+                        worksheet.set_row(row_idx + 1, None, bold_fmt)
+                
+                # Add autofilter to all columns based on header
+                worksheet.autofilter(0, 0, len(df), len(cols) - 1)
+            
+            # Simple column width adjustment
+            for i, col in enumerate(df.columns):
+                max_val = df[col].astype(str).map(len).max() if not df.empty else 0
+                column_len = max(max_val, len(col)) + 2
+                worksheet.set_column(i, i, min(column_len, 50))
+    
+    output.seek(0)
+    filename = "Auditoria_Consolidada_Safra_2026.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
 @app.get("/loads", response_model=List[schemas.LoadResponse])
 def get_loads(
     skip: int = 0, 
@@ -284,7 +421,14 @@ def register_historical_ids(file: UploadFile = File(...), db: Session = Depends(
     """Registers all IDs from a spreadsheet as 'Known' (Memory). These will NOT be urgent on future uploads."""
     try:
         contents = file.file.read()
-        df = pd.read_excel(io.BytesIO(contents), engine='openpyxl')
+        import io
+        import pandas as pd
+        
+        file_ext = file.filename.split('.')[-1].lower() if file.filename else ''
+        if file_ext == 'csv':
+            df = pd.read_csv(io.BytesIO(contents), low_memory=False)
+        else:
+            df = pd.read_excel(io.BytesIO(contents), engine='openpyxl')
         
         # Look for ID column (Col N usually)
         id_col = None
@@ -300,20 +444,29 @@ def register_historical_ids(file: UploadFile = File(...), db: Session = Depends(
             else:
                 raise HTTPException(status_code=400, detail="Coluna ID não encontrada")
 
-        ids = df[id_col].dropna().astype(str).unique().tolist()
+        ids = df[id_col].dropna().astype(str).str.strip().unique().tolist()
         
         count = 0
         from datetime import datetime
-        for lid in ids:
-            existing = db.query(models.KnownID).filter(models.KnownID.load_identifier == lid).first()
-            if not existing:
-                db.add(models.KnownID(load_identifier=lid, registered_at=datetime.now()))
-                count += 1
+        now = datetime.now()
         
-        db.commit()
+        chunk_size = 5000
+        for i in range(0, len(ids), chunk_size):
+            chunk = ids[i:i+chunk_size]
+            existing = {k[0] for k in db.query(models.KnownID.load_identifier).filter(models.KnownID.load_identifier.in_(chunk)).all()}
+            
+            new_objs = []
+            for lid in chunk:
+                if lid not in existing:
+                    new_objs.append(models.KnownID(load_identifier=lid, registered_at=now))
+            
+            if new_objs:
+                db.bulk_save_objects(new_objs)
+                db.commit()
+                count += len(new_objs)
         
         # Track last upload time
-        now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        now_str = now.strftime("%d/%m/%Y %H:%M:%S")
         config_last = db.query(models.SystemConfig).filter(models.SystemConfig.key == "last_upload_at").first()
         if config_last:
             config_last.value = now_str
@@ -321,7 +474,7 @@ def register_historical_ids(file: UploadFile = File(...), db: Session = Depends(
             db.add(models.SystemConfig(key="last_upload_at", value=now_str))
         db.commit()
 
-        return {"message": f"Memória atualizada: {count} novos IDs registrados", "total_registered": count}
+        return {"message": f"Memória RPA atualizada! {count} novos IDs registrados.", "total_registered": count}
     except Exception as e:
         import traceback
         print(traceback.format_exc())
@@ -401,7 +554,7 @@ def get_analytics(db: Session = Depends(get_db)):
         "peso_duplicado": 0,
         "rateio_mesmo_pdr": 0,
         "padrao": 0,
-        "rateio_produtor": 0
+        "duplicidade_cod": 0
     }
     
     for etype, count in rule_counts_raw:
@@ -472,7 +625,7 @@ def get_fast_track_analytics(db: Session = Depends(get_db)):
         "duplicado", "campos", "placa", "excesso_peso", 
         "peso_ficticio", "desconto", "rateio_peso", "rateio_parceiro", 
         "rateio_tech", "rateio_possivel", "peso_duplicado", "rateio_mesmo_pdr",
-        "padrao", "rateio_produtor"
+        "padrao", "rateio_produtor", "duplicidade_cod"
     ]}
     
     if recent_identifiers:
@@ -571,6 +724,7 @@ def export_rule_xlsx(rule_filter: str, error_type: str = None, district: str = N
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
+
 @app.post("/validate")
 def trigger_validation(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # 1. Reset everything to pending and CLEAR old error messages
@@ -618,7 +772,7 @@ def get_district_distribution(district_name: str, db: Session = Depends(get_db))
     rules = [
         {"name": "Duplicidade", "pattern": "duplicado"},
         {"name": "Padrão Doc", "pattern": "padrao"},
-        {"name": "Preenchimento", "pattern": "campos"},
+        {"name": "Campo Inválido", "pattern": "campos"},
         {"name": "Placa", "pattern": "placa"},
         {"name": "Limite Peso", "pattern": "excesso_peso"},
         {"name": "Peso Fictício", "pattern": "peso_ficticio"},
