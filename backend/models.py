@@ -69,6 +69,7 @@ class OperationLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     visit_code = Column(String, index=True) # COD
+    load_identifier = Column(String, index=True) # Added to fix analytics error
     timestamp = Column(DateTime, default=func.now())
 
 class User(Base):

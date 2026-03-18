@@ -36,6 +36,8 @@ class DistrictStats(BaseModel):
     total_loads: int
     error_loads: int
     error_rate: float
+    top_error: Optional[str] = "Nenhum"
+    top_error_count: Optional[int] = 0
 
 class AnalyticsSummary(BaseModel):
     total_loads: int

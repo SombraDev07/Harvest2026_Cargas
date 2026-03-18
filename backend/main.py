@@ -1,19 +1,97 @@
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from typing import List
+from typing import List, Any
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import text, func
+from pydantic import BaseModel
+from datetime import datetime, timedelta
 import pandas as pd
 import io
+import os
+import uuid
+import requests
 
 import models, schemas, database, validation
-from database import engine, get_db
+from database import engine, get_db, SessionLocal
 from rules.utils import normalize_str
 
 # Create tables
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Harvest 2026 Cargas RPA")
+def set_cfg(db: Session, key: str, val: Any):
+    """Auxiliar para salvar configurações de sistema de forma persistente no DB."""
+    try:
+        cfg = db.query(models.SystemConfig).filter(models.SystemConfig.key == key).first()
+        if cfg:
+            cfg.value = str(val)
+        else:
+            db.add(models.SystemConfig(key=key, value=str(val)))
+        db.commit()
+    except Exception as e:
+        print(f"Erro ao salvar config {key}: {e}")
+        db.rollback()
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    print("--- [MIGRATION] Checking for missing columns in 'loads' table ---")
+    with engine.connect() as conn:
+        try:
+            # Ensure critical columns and tables
+            conn.execute(text("ALTER TABLE loads ADD COLUMN IF NOT EXISTS is_urgent BOOLEAN DEFAULT FALSE"))
+            print("--- [MIGRATION] Column is_urgent ensured ---")
+            conn.execute(text("ALTER TABLE loads ADD COLUMN IF NOT EXISTS arrival_at TIMESTAMP"))
+            print("--- [MIGRATION] Column arrival_at ensured ---")
+            conn.execute(text("ALTER TABLE loads ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
+            print("--- [MIGRATION] Column updated_at ensured ---")
+            
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS system_config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """))
+            print("--- [MIGRATION] Table system_config ensured ---")
+            
+            # Reset processing status on startup
+            conn.execute(text("UPDATE system_config SET value = 'false' WHERE key = 'is_processing'"))
+            conn.execute(text("UPDATE system_config SET value = '0' WHERE key = 'processing_progress'"))
+            conn.execute(text("UPDATE system_config SET value = 'Nenhum' WHERE key = 'active_filename'"))
+            conn.commit()
+            print("--- [SYSTEM] Resetting processing status on startup ---")
+            
+            # --- AUTH-APPLY SQL PROCEDURE ---
+            # Path relative to backend/main.py is ../validation_procedure.sql
+            proc_path = os.path.join(os.path.dirname(__file__), "..", "validation_procedure.sql")
+            if os.path.exists(proc_path):
+                 print(f"--- [MIGRATION] Applying {proc_path} ---")
+                 with open(proc_path, "r") as f:
+                     sql_proc = f.read()
+                 conn.execute(text(sql_proc))
+                 conn.commit()
+                 print("--- [MIGRATION] Validation procedure updated! ---")
+            
+        except Exception as e:
+            print(f"Migration/Startup error: {e}")
+            
+    # Seed data
+    db = SessionLocal()
+    try:
+        # Check for admin
+        admin = db.query(models.User).filter(models.User.username == "BrunoHarvest2026@BureauVeritas.com").first()
+        if admin:
+             admin.full_name = "Bruno Harvest 2026"
+             db.commit()
+             print("--- [SEED] Admin BrunoHarvest2026@BureauVeritas.com updated ---")
+    finally:
+        db.close()
+        
+    yield
+
+app = FastAPI(title="Harvest 2026 Cargas RPA", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,56 +105,13 @@ app.add_middleware(
 def read_root():
     return {"message": "Harvest 2026 API is running"}
 
-@app.on_event("startup")
-def run_migrations():
-    """Self-healing migration to ensure DB schema is up to date on production."""
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        print("--- [MIGRATION] Checking for missing columns in 'loads' table ---")
-        # List of columns to check and their types (PostgreSQL compatible)
-        columns = [
-            ("is_urgent", "BOOLEAN DEFAULT FALSE"),
-            ("arrival_at", "TIMESTAMP WITHOUT TIME ZONE"),
-            ("updated_at", "TIMESTAMP WITHOUT TIME ZONE")
-        ]
-        
-        for col_name, col_type in columns:
-            try:
-                conn.execute(text(f"ALTER TABLE loads ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
-                conn.commit()
-                print(f"--- [MIGRATION] Column {col_name} ensured ---")
-            except Exception as e:
-                print(f"--- [MIGRATION] Warning: Could not ensure column {col_name}: {e} ---")
-
-        # Ensure SystemConfig table exists (Base.metadata.create_all handles it usually but let's be sure)
-        try:
-            conn.execute(text("CREATE TABLE IF NOT EXISTS system_config (key VARCHAR PRIMARY KEY, value VARCHAR)"))
-            conn.commit()
-            print("--- [MIGRATION] Table system_config ensured ---")
-        except Exception as e:
-            print(f"--- [MIGRATION] Warning: Could not ensure table system_config: {e} ---")
-
-@app.on_event("startup")
-def seed_user():
-    from database import SessionLocal
-    db = SessionLocal()
-    try:
-        # Seed/Update admin email to ensure login works
-        email = "BrunoHarvest2026@BureauVeritas.com"
-        pwd = "ChildrenOfLight123***"
-        
-        user = db.query(models.User).filter(models.User.username == email).first()
-        if not user:
-            user = models.User(username=email, password_hash=pwd, role="admin")
-            db.add(user)
-            print(f"--- [SEED] Admin {email} created ---")
-        else:
-            user.password_hash = pwd
-            print(f"--- [SEED] Admin {email} password updated/verified ---")
-        
-        db.commit()
-    finally:
-        db.close()
+@app.post("/system/reset")
+def reset_system_status(db: Session = Depends(get_db)):
+    """Reseta o status de processamento preso no banco de dados."""
+    set_cfg(db, "is_processing", "false")
+    set_cfg(db, "processing_progress", "0")
+    set_cfg(db, "active_filename", "Nenhum")
+    return {"message": "Sistema resetado com sucesso. Pode tentar o upload novamente."}
 
 @app.post("/login", response_model=schemas.LoginResponse)
 def login(req: schemas.LoginRequest, db: Session = Depends(get_db)):
@@ -103,8 +138,16 @@ def get_loads(
 ):
     query = db.query(models.Load)
     
+    # NEW FILTER: Exclude IDs that are already "Resolved" (in registered_loads)
+    # We use a subquery to find these IDs
+    resolved_ids_subquery = db.query(models.RegisteredLoad.load_identifier)
+    if error_type:
+        # If we have a specific error_type context, we only exclude if THAT error was resolved
+        resolved_ids_subquery = resolved_ids_subquery.filter(models.RegisteredLoad.error_type == error_type)
+    
+    query = query.filter(~models.Load.load_identifier.in_(resolved_ids_subquery))
+
     # Queue Filtering (72h logic)
-    from datetime import datetime, timedelta
     threshold_72h = datetime.now() - timedelta(hours=72)
 
     if queue == "urgent":
@@ -120,7 +163,6 @@ def get_loads(
 
     if error_type:
         # Optimization: Use a join instead of IN clause with thousands of IDs
-        # We explicitly fetch the ledger message as an attribute 'ledger_message'
         query = query.join(models.ErrorLedger, models.Load.load_identifier == models.ErrorLedger.load_identifier)\
                      .filter(models.ErrorLedger.error_type == error_type)\
                      .add_columns(models.ErrorLedger.error_message.label("ledger_message"))
@@ -130,13 +172,11 @@ def get_loads(
         
     results = query.order_by(models.Load.updated_at.desc()).offset(skip).limit(limit).all()
     
-    # Process results: if we have added columns, SQLAlchemy returns tuples
     final_loads = []
     for item in results:
-        if isinstance(item, tuple):
+        if hasattr(item, '_mapping'):
             load_obj = item[0]
-            # Override error_message with the specific one from this ledger entry (includes %)
-            load_obj.error_message = item.ledger_message
+            load_obj.error_message = item._mapping.get('ledger_message')
             final_loads.append(load_obj)
         else:
             final_loads.append(item)
@@ -349,10 +389,9 @@ def get_analytics(db: Session = Depends(get_db)):
     # Initialize with 0s to ensure all keys exist for frontend
     rule_counts = {
         "duplicado": 0,
-        "documento": 0,
         "campos": 0,
         "placa": 0,
-        "peso_limite": 0,
+        "excesso_peso": 0,
         "peso_ficticio": 0,
         "desconto": 0,
         "rateio_peso": 0,
@@ -360,7 +399,9 @@ def get_analytics(db: Session = Depends(get_db)):
         "rateio_tech": 0,
         "rateio_possivel": 0,
         "peso_duplicado": 0,
-        "rateio_mesmo_pdr": 0
+        "rateio_mesmo_pdr": 0,
+        "padrao": 0,
+        "rateio_produtor": 0
     }
     
     for etype, count in rule_counts_raw:
@@ -379,15 +420,25 @@ def get_analytics(db: Session = Depends(get_db)):
 
     district_performance = []
     for row in district_performance_raw:
+        dist_name = row.district or "Desconhecido"
         total_loads = row.total or 0
         error_loads = int(row.errors or 0)
         error_rate = (error_loads / total_loads * 100) if total_loads > 0 else 0
         
+        # New: find top error for THIS district
+        top_err_row = db.query(models.ErrorLedger.error_type, func.count(models.ErrorLedger.id).label("cnt"))\
+            .filter(models.ErrorLedger.district == dist_name)\
+            .group_by(models.ErrorLedger.error_type)\
+            .order_by(text("cnt DESC"))\
+            .first()
+        
         district_performance.append({
-            "name": row.district or "Desconhecido",
+            "name": dist_name,
             "total_loads": total_loads,
             "error_loads": error_loads,
-            "error_rate": round(error_rate, 1)
+            "error_rate": round(error_rate, 1),
+            "top_error": top_err_row[0] if top_err_row else "Nenhum",
+            "top_error_count": int(top_err_row[1]) if top_err_row else 0
         })
     
     district_performance.sort(key=lambda x: x["error_loads"], reverse=True)
@@ -418,9 +469,10 @@ def get_fast_track_analytics(db: Session = Depends(get_db)):
     
     # Error classification counts for URGENT loads only
     rule_counts = {k: 0 for k in [
-        "duplicado", "documento", "campos", "placa", "peso_limite", 
+        "duplicado", "campos", "placa", "excesso_peso", 
         "peso_ficticio", "desconto", "rateio_peso", "rateio_parceiro", 
-        "rateio_tech", "rateio_possivel", "peso_duplicado", "rateio_mesmo_pdr"
+        "rateio_tech", "rateio_possivel", "peso_duplicado", "rateio_mesmo_pdr",
+        "padrao", "rateio_produtor"
     ]}
     
     if recent_identifiers:
@@ -442,33 +494,81 @@ def get_fast_track_analytics(db: Session = Depends(get_db)):
     }
 
 @app.get("/loads/export")
-def export_rule_csv(rule_filter: str, db: Session = Depends(get_db)):
-    def generate():
-        # Header
-        yield "ID,VISITA,DISTRITO,CNPJ_FILIAL,DOC/ROMANEIO,PLACA,PRODUTOR,PESO_LIQ,STATUS,ERRO\n"
-        
-        # Stream from DB
-        query = db.query(models.Load).filter(models.Load.error_message.like(f"%{rule_filter}%"))
-        
-        for load in query.yield_per(100):
-            row = [
-                str(load.load_identifier),
-                str(load.visit_code),
-                str(load.district).replace(",", " "),
-                str(load.cnpj_filial).replace(",", " "),
-                str(load.doc_number),
-                str(load.truck_plate),
-                str(load.product).replace(",", " "),
-                str(load.weight_net),
-                str(load.status),
-                str(load.error_message).replace(",", ";")
-            ]
-            yield ",".join(row) + "\n"
+def export_rule_xlsx(rule_filter: str, error_type: str = None, district: str = None, db: Session = Depends(get_db)):
+    # 1. Start Query
+    query = db.query(models.Load)
+    
+    # 2. Unify logic with /loads endpoint: Use join with ErrorLedger if error_type is provided
+    if error_type:
+        query = query.join(models.ErrorLedger, models.Load.load_identifier == models.ErrorLedger.load_identifier)\
+                     .filter(models.ErrorLedger.error_type == error_type)\
+                     .add_columns(models.ErrorLedger.error_message.label("ledger_message"))
+    else:
+        # Fallback to text search if no type provided (legacy support)
+        query = query.filter(models.Load.error_message.ilike(f"%{rule_filter}%"))
+        query = query.add_columns(models.Load.error_message.label("ledger_message"))
 
+    # 3. Exclude IDs that are already "Resolved" using EXISTS (safer than NOT IN with nulls)
+    from sqlalchemy import exists, and_
+    resolved_stmt = exists().where(
+        and_(
+            models.RegisteredLoad.load_identifier == models.Load.load_identifier,
+            models.RegisteredLoad.error_type == error_type if error_type else True
+        )
+    )
+    query = query.filter(~resolved_stmt)
+    
+    if district and district != 'GERAL':
+        query = query.filter(models.Load.district == district)
+    
+    results = query.all()
+    
+    # 4. Map to DataFrame with specific column names/order
+    data = []
+    for item in results:
+        # Handle both Row objects (from join) and direct Model objects
+        if hasattr(item, '_mapping'):
+            l = item[0]
+            msg = item._mapping.get('ledger_message')
+        else:
+            l = item
+            msg = l.error_message
+
+        data.append({
+            "COD": l.visit_code,
+            "DISTRITO": l.district,
+            "ID": l.load_identifier,
+            "PLACA": l.truck_plate,
+            "TECNOLOGIA": l.technology,
+            "PRODUTOR": l.product,
+            "DOC": l.doc_number,
+            "PL (KG)": l.weight_gross,
+            "PLCD (KG)": l.weight_net,
+            "OBS / INCONSISTÊNCIA": msg
+        })
+    
+    # Ensure columns exist even if data is empty
+    cols = ["COD", "DISTRITO", "ID", "PLACA", "TECNOLOGIA", "PRODUTOR", "DOC", "PL (KG)", "PLCD (KG)", "OBS / INCONSISTÊNCIA"]
+    df = pd.DataFrame(data, columns=cols)
+    
+    # 5. Create Excel buffer
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Audit_Report')
+        worksheet = writer.sheets['Audit_Report']
+        # Simple auto-adjust column width
+        for i, col in enumerate(df.columns):
+            max_val = df[col].astype(str).map(len).max() if not df.empty else 0
+            column_len = max(max_val, len(col)) + 2
+            worksheet.set_column(i, i, min(column_len, 50)) # Cap width
+            
+    output.seek(0)
+    
+    filename = f"Relatorio_{rule_filter.replace(' ', '_')}.xlsx"
     return StreamingResponse(
-        generate(),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=relatorio_{rule_filter}.csv"}
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
 @app.post("/validate")
@@ -517,12 +617,13 @@ def get_district_distribution(district_name: str, db: Session = Depends(get_db))
     # Error classification patterns
     rules = [
         {"name": "Duplicidade", "pattern": "duplicado"},
-        {"name": "Padrão Doc", "pattern": "padrão"},
-        {"name": "Preenchimento", "pattern": "não preenchido"},
-        {"name": "Placa", "pattern": "Placa inválida"},
-        {"name": "Limite Peso", "pattern": "acima do limite"},
-        {"name": "Peso Fictício", "pattern": "peso fictício"},
-        {"name": "Desconto", "pattern": "Desconto excessivo"},
+        {"name": "Padrão Doc", "pattern": "padrao"},
+        {"name": "Preenchimento", "pattern": "campos"},
+        {"name": "Placa", "pattern": "placa"},
+        {"name": "Limite Peso", "pattern": "excesso_peso"},
+        {"name": "Peso Fictício", "pattern": "peso_ficticio"},
+        {"name": "Desconto", "pattern": "desconto"},
+        {"name": "Rateio Produtor", "pattern": "rateio_produtor"},
     ]
     
     distribution = []
@@ -557,230 +658,365 @@ async def upload_file(
     wipe: bool = False, 
     db: Session = Depends(get_db)
 ):
+    print(f"--- [UPLOAD] Request received: {file.filename} (wipe={wipe}) ---")
     if not file.filename.endswith(('.xlsx', '.csv')):
+        print(f"--- [UPLOAD] Error: Invalid file format {file.filename} ---")
         raise HTTPException(status_code=400, detail="Invalid file format")
     
-    if wipe:
-        print("--- [WIPE] Clearing existing data before upload ---")
-        db.query(models.ErrorLedger).delete()
-        db.query(models.OperationLog).delete()
-        db.query(models.TableAnalysis).delete()
-        db.query(models.Load).delete()
-        db.commit()
-
-    content = await file.read()
-    buffer = io.BytesIO(content)
-    
-    try:
-        df = None
-        # Load File - Attempt header=1 (Second Row) then header=0 (First Row)
+    # Helpers for data conversion
+    def to_float(val):
+        if isinstance(val, pd.Series): val = val.iloc[0] if not val.empty else 0.0
+        if pd.isna(val) or val == "" or str(val).lower() == "nan": return 0.0
         try:
-            if file.filename.endswith('.xlsx'):
-                df = pd.read_excel(buffer, header=1) 
-            else:
-                df = pd.read_csv(buffer, header=1)
-        except:
-            buffer.seek(0)
-            if file.filename.endswith('.xlsx'):
-                df = pd.read_excel(buffer, header=0)
-            else:
-                df = pd.read_csv(buffer, header=0)
+            if isinstance(val, (int, float)): return float(val)
+            s = str(val).strip().replace('.', '').replace(',', '.')
+            return float(s)
+        except: return 0.0
+
+    def clean_val(val):
+        if isinstance(val, pd.Series): val = val.iloc[0] if not val.empty else "N/A"
+        if pd.isna(val) or val == "" or str(val).lower() == "nan": return "N/A"
+        # Remove quebras de linha e tabs que quebram agrupamentos no DB
+        return str(val).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').strip()
+
+    # We define the background function here
+    def process_upload_in_background(content: bytes, filename: str):
+        bg_db = database.SessionLocal()
+        try:
+            set_cfg(bg_db, "is_processing", "true")
+            set_cfg(bg_db, "processing_progress", "5")
+            set_cfg(bg_db, "active_filename", filename)
+
+            # 1. READ FILE
+            df = pd.read_excel(io.BytesIO(content), engine='openpyxl')
             
-        if df is None or df.empty:
-            raise Exception("Planilha vazia ou não pôde ser lida.")
+            if df is None or df.empty:
+                set_cfg(bg_db, "is_processing", "false")
+                set_cfg(bg_db, "last_validation_error", "Planilha vazia")
+                return
 
-        # 1. MAKE HEADERS UNIQUE & ROBUST
-        new_cols = []
-        counts = {}
-        for c in df.columns:
-            c_str = str(c) if not pd.isna(c) else "COLUNA"
-            base = normalize_str(c_str).upper().strip() or "VAZIA"
-            if base in counts:
-                counts[base] += 1
-                new_cols.append(f"{base}_{counts[base]}")
-            else:
-                counts[base] = 0
-                new_cols.append(base)
-        df.columns = new_cols
-        normalized_cols = list(df.columns)
+            new_cols = []
+            counts = {}
+            for c in df.columns:
+                c_str = str(c) if not pd.isna(c) else "COLUNA"
+                base = normalize_str(c_str).upper().strip() or "VAZIA"
+                if base in counts:
+                    counts[base] += 1
+                    new_cols.append(f"{base}_{counts[base]}")
+                else:
+                    counts[base] = 0
+                    new_cols.append(base)
+            df.columns = new_cols
 
-        def find_column_robust(names, default_idx):
-            # 1. Exact normalized match
-            for target in names:
-                norm_target = normalize_str(str(target)).upper().strip()
-                if norm_target in normalized_cols: return norm_target
-            # 2. Fragment match
-            for target in names:
-                norm_target = normalize_str(str(target)).upper().strip()
-                for col in normalized_cols:
-                    if norm_target in col: return col
-            # 3. Index fallback
-            if len(df.columns) > default_idx: return df.columns[default_idx]
-            return normalized_cols[0] if normalized_cols else "MISSING"
+            normalized_cols = list(df.columns)
+            def find_robust(names, default):
+                for target in names:
+                    norm = normalize_str(str(target)).upper().strip()
+                    if norm in normalized_cols: return norm
+                for target in names:
+                    norm = normalize_str(str(target)).upper().strip()
+                    for col in normalized_cols:
+                        if norm in col: return col
+                return normalized_cols[default] if len(normalized_cols) > default else "MISSING"
 
-        col_id = find_column_robust(["ID", "CHAVE", "IDENTIFICADOR", "TICKET"], 13)
-        col_district = find_column_robust(["DISTRITO FILIAL", "DISTRITO"], 8)
-        col_weight_gross = find_column_robust(["PESO LÍQUIDO", "PESO LIQUIDO", "PESO", "BRUTO"], 18)
-        col_weight_net = find_column_robust(["PESO LÍQUIDO C/ DESCONTO", "PESO LIQUIDO C/ DESCONTO", "PLCD"], 19)
-        col_plate = find_column_robust(["PLACA DO CAMINHÃO", "PLACA", "VEICULO", "VEÍCULO"], 23)
-        col_product = find_column_robust(["PRODUTOR", "CLIENTE", "FORNECEDOR", "PARCEIRO"], 21)
-        col_visit = find_column_robust(["CÓDIGO VISITA", "VISITA", "COD"], 0)
-        col_doc = find_column_robust(["NÚMERO DOCUMENTO", "DOCUMENTO", "ROMANEIO", "DOC"], 17)
-        col_cnpj_filial = find_column_robust(["CNPJ FILIAL PDR", "CNPJ FILIAL", "CNPJ/FILIAL"], 12)
-        col_rateio = find_column_robust(["RATEIO"], 31)
-        col_technology = find_column_robust(["RESULTADO DO TESTE ACOMPANHADO", "TECNOLOGIA", "TECH", "SISTEMA"], 20)
-        col_city = find_column_robust(["CIDADE FILIAL", "CIDADE"], 10)
-        col_load_time = find_column_robust(["HORÁRIO", "HORA", "HORA DA CARGA"], 15)
+            col_id = find_robust(["ID", "CHAVE", "IDENTIFICADOR", "TICKET"], 13)
+            col_district = find_robust(["DISTRITO FILIAL", "DISTRITO"], 8)
+            col_weight_gross = find_robust(["PESO LÍQUIDO", "PESO LIQUIDO", "PESO", "BRUTO"], 18)
+            col_weight_net = find_robust(["PESO LÍQUIDO C/ DESCONTO", "PLCD"], 19)
+            col_plate = find_robust(["PLACA DO CAMINHÃO", "PLACA", "VEICULO"], 23)
+            col_product = find_robust(["PRODUTOR", "CLIENTE"], 21)
+            col_visit = find_robust(["CÓDIGO VISITA", "VISITA"], 0)
+            col_doc = find_robust(["NÚMERO DOCUMENTO", "DOCUMENTO"], 17)
+            col_cnpj_filial = find_robust(["CNPJ FILIAL PDR", "CNPJ FILIAL"], 12)
+            col_city = find_robust(["CIDADE FILIAL", "CIDADE"], 10)
+            col_load_time = find_robust(["HORÁRIO", "HORA"], 15)
+            col_technology = find_robust(["TECNOLOGIA", "TECH"], 20)
+            col_rateio = find_robust(["RATEIO"], 31)
 
-        # Helper for ultra-defensive converters
-        def to_float(val):
-            if isinstance(val, pd.Series): val = val.iloc[0] if not val.empty else 0.0
-            if pd.isna(val) or val == "" or str(val).lower() == "nan": return 0.0
-            try:
-                if isinstance(val, (int, float)): return float(val)
-                s = str(val).strip().replace('.', '').replace(',', '.')
-                return float(s)
-            except: return 0.0
+            total_rows = len(df)
+            from datetime import datetime
+            now = datetime.now()
 
-        def clean_val(val):
-            if isinstance(val, pd.Series): val = val.iloc[0] if not val.empty else "N/A"
-            if pd.isna(val) or val == "" or str(val).lower() == "nan": return "N/A"
-            return str(val).strip()
-
-        # Pre-fetch for UPSERT and Delta logic
-        # Optimize by getting only known IDs in chunks to prevent severe memory crashes on large dbs
-        
-        imported_count = 0
-        updated_count = 0
-        from datetime import datetime
-        now = datetime.now()
-        
-        unique_districts = []
-        if col_district in df.columns:
-            unique_districts = df[col_district].dropna().unique().astype(str).tolist()
-
-        # Batch processing to avoid OOM and keep DB alive
-        # We process in chunks of 1000 to balance speed and memory
-        batch_size = 1000
-        for i in range(0, len(df), batch_size):
-            chunk_df = df.iloc[i:i+batch_size]
-            
-            # Fetch existing loads for THIS chunk only
-            chunk_ids = [str(x).strip() for x in chunk_df[col_id].dropna()]
-            existing_loads = {l.load_identifier: l for l in db.query(models.Load).filter(models.Load.load_identifier.in_(chunk_ids)).all()}
-            
-            # Fetch ONLY the known IDs that exist in this chunk to prevent full DB memory load
-            known_ids_chunk = {ki[0] for ki in db.query(models.KnownID.load_identifier).filter(models.KnownID.load_identifier.in_(chunk_ids)).all()}
-            
-            for _, row in chunk_df.iterrows():
-                raw_id = row.get(col_id)
-                if raw_id is None or pd.isna(raw_id) or str(raw_id).strip() == "":
-                    continue
+            batch_size = 500
+            for i in range(0, total_rows, batch_size):
+                chunk_df = df.iloc[i:i+batch_size]
+                chunk_ids = [str(x).strip() for x in chunk_df[col_id].dropna()]
+                existing_loads = {l.load_identifier: l for l in bg_db.query(models.Load).filter(models.Load.load_identifier.in_(chunk_ids)).all()}
+                known_ids_chunk = {ki[0] for ki in bg_db.query(models.KnownID.load_identifier).filter(models.KnownID.load_identifier.in_(chunk_ids)).all()}
+                
+                for _, row in chunk_df.iterrows():
+                    raw_id = row.get(col_id)
+                    if not raw_id or pd.isna(raw_id): continue
+                    l_id = str(raw_id).strip()
+                    load = existing_loads.get(l_id)
+                    is_new = l_id not in known_ids_chunk
                     
-                load_id = str(raw_id).strip()
-                load = existing_loads.get(load_id)
-                is_new_id = load_id not in known_ids_chunk
-                
-                if not load:
-                    load = models.Load(load_identifier=load_id)
-                    db.add(load)
-                    existing_loads[load_id] = load # Update map for intra-chunk duplicates
-                    if is_new_id: known_ids_chunk.add(load_id) # mark as known from now on in this chunk
-                    imported_count += 1
-                else:
-                    updated_count += 1
+                    if not load:
+                        load = models.Load(load_identifier=l_id)
+                        bg_db.add(load)
+                        existing_loads[l_id] = load
+                        if is_new: bg_db.add(models.KnownID(load_identifier=l_id, registered_at=now))
+                    
+                    load.is_urgent = True if is_new else False
+                    if is_new: load.arrival_at = now
+                    load.truck_plate = clean_val(row.get(col_plate))
+                    load.product = clean_val(row.get(col_product))
+                    load.district = clean_val(row.get(col_district))
+                    load.visit_code = clean_val(row.get(col_visit))
+                    load.doc_number = clean_val(row.get(col_doc))
+                    load.city = clean_val(row.get(col_city))
+                    load.cnpj_filial = clean_val(row.get(col_cnpj_filial))
+                    load.rateio = clean_val(row.get(col_rateio))
+                    load.technology = clean_val(row.get(col_technology))
+                    load.load_time = clean_val(row.get(col_load_time))
+                    load.weight_gross = to_float(row.get(col_weight_gross))
+                    load.weight_net = to_float(row.get(col_weight_net))
+                    load.status = "pending"
+                    load.updated_at = models.func.now()
 
-                # Delta Logic: Mark as urgent if ID is previously unknown
-                if is_new_id:
-                    load.is_urgent = True
-                    load.arrival_at = now
-                else:
-                    load.is_urgent = False
-                    # arrival_at stays as is or can be cleared
+                progress = int(5 + (i / total_rows) * 90)
+                set_cfg(bg_db, "processing_progress", progress)
+                bg_db.commit()
+                bg_db.expire_all()
 
-                # Populate Fields
-                load.truck_plate = clean_val(row.get(col_plate))
-                load.product = clean_val(row.get(col_product))
-                load.district = clean_val(row.get(col_district))
-                load.visit_code = clean_val(row.get(col_visit))
-                load.doc_number = clean_val(row.get(col_doc))
-                load.city = clean_val(row.get(col_city))
-                load.cnpj_filial = clean_val(row.get(col_cnpj_filial))
-                load.rateio = clean_val(row.get(col_rateio))
-                load.technology = clean_val(row.get(col_technology))
-                load.load_time = clean_val(row.get(col_load_time))
-                load.weight_gross = to_float(row.get(col_weight_gross))
-                load.weight_net = to_float(row.get(col_weight_net))
-                load.status = "pending" 
-                load.updated_at = models.func.now()
-                
-                # --- AUTO-MEMORY REGISTRATION ---
-                # Automatically add this ID to KnownID (Memory) if not there
-                if is_new_id:
-                    db.add(models.KnownID(load_identifier=load_id, registered_at=now))
+            validation.run_batch_validation(bg_db)
+            set_cfg(bg_db, "last_upload_at", now.strftime("%d/%m/%Y %H:%M:%S"))
+            set_cfg(bg_db, "processing_progress", "100")
+            set_cfg(bg_db, "is_processing", "false")
             
-            # Periodically commit and clear session to keep memory low (IN THE OUTER CHUNK LOOP)
-            if (i + batch_size) % 5000 == 0:
-                db.commit()
-        
-        db.commit()
-        
-        # Track last upload time and ACTIVE FILENAME
-        now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        
-        def set_config(key, val):
-            c = db.query(models.SystemConfig).filter(models.SystemConfig.key == key).first()
-            if c: c.value = val
-            else: db.add(models.SystemConfig(key=key, value=val))
+        except Exception as e:
+            import traceback
+            print(f"BACKGROUND PROCESSING ERROR: {e}")
+            set_cfg(bg_db, "last_validation_error", f"{str(e)}")
+            set_cfg(bg_db, "is_processing", "false")
+        finally:
+            bg_db.close()
 
-        set_config("last_upload_at", now_str)
-        set_config("active_filename", file.filename)
-        
-        # Set is_processing to true
-        set_config("is_processing", "true")
-        db.commit()
-        
-        # Immediate Validation (Non-blocking)
-        def run_validation_safely():
-            from database import SessionLocal
-            val_db = SessionLocal()
-            try:
-                print("--- [BACKGROUND] Starting automation audit after upload ---")
-                validation.run_batch_validation(val_db)
-                print("--- [BACKGROUND] Automation audit completed successfully ---")
-            except Exception as e:
-                import traceback
-                tb = traceback.format_exc()
-                print(f"--- [BACKGROUND ERROR] Validation crashed: {e} ---")
-                print(tb)
-                # Save the error to DB so we can debug it even if docker logs are lost
-                c = val_db.query(models.SystemConfig).filter(models.SystemConfig.key == "last_validation_error").first()
-                if c: c.value = str(e) + " | " + tb[:500]
-                else: val_db.add(models.SystemConfig(key="last_validation_error", value=str(e) + " | " + tb[:500]))
-            finally:
-                # Turn off the processing flag ALWAYS
-                c = val_db.query(models.SystemConfig).filter(models.SystemConfig.key == "is_processing").first()
-                if c: c.value = "false"
-                else: val_db.add(models.SystemConfig(key="is_processing", value="false"))
-                val_db.commit()
-                val_db.close()
-        
-        background_tasks.add_task(run_validation_safely)
+class SupabaseUploadRequest(BaseModel):
+    file_path: str
+    file_name: str
+    wipe: bool = True
 
+@app.post("/upload/supabase")
+async def upload_supabase_file(
+    req: SupabaseUploadRequest,
+    bg: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Novo ponto de entrada para arquivos no Supabase Storage."""
+    try:
+        import uuid
+        upload_uuid = str(uuid.uuid4())
+        bg.add_task(process_supabase_upload_task, req.file_path, req.file_name, req.wipe, upload_uuid)
         return {
-            "message": "Cargas processadas com sucesso!",
-            "total_rows": len(df),
-            "imported_new": imported_count,
-            "updated_existing": updated_count,
-            "districts": unique_districts
+            "status": "background_started",
+            "message": f"Processamento Cloud iniciado para {req.file_name}",
+            "upload_id": upload_uuid
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def process_supabase_upload_task(storage_path: str, original_filename: str, wipe: bool, upload_uuid: str):
+    """Baixa do Storage e aciona o motor SQL atômico."""
+    from database import SessionLocal
+    bg_db = SessionLocal()
+    from sqlalchemy import text
+    try:
+        print(f"--- [CLOUD] INICIANDO PROCESSAMENTO: {original_filename} ({upload_uuid}) ---")
+        set_cfg(bg_db, "is_processing", "true")
+        set_cfg(bg_db, "processing_progress", "5")
+        set_cfg(bg_db, "active_filename", original_filename)
+        
+        import requests
+        SUPABASE_URL = "https://dipbhkolyebdbvrjedwu.supabase.co"
+        public_url = f"{SUPABASE_URL}/storage/v1/object/public/planilhas/{storage_path}"
+        
+        print(f"--- [CLOUD] BAIXANDO ARQUIVO ... ---")
+        resp = requests.get(public_url)
+        if resp.status_code != 200:
+            raise Exception(f"Download falhou: {resp.status_code}")
+            
+        content = resp.content
+        set_cfg(bg_db, "processing_progress", "10")
+        print(f"--- [CLOUD] ARQUIVO BAIXADO ({len(content)} bytes). LENDO DADOS ... ---")
+
+        import io
+        import pandas as pd
+        file_ext = original_filename.split('.')[-1].lower()
+        if file_ext == 'csv':
+             df = pd.read_csv(io.BytesIO(content), low_memory=False)
+        else:
+             df = pd.read_excel(io.BytesIO(content), engine='openpyxl')
+             
+        set_cfg(bg_db, "processing_progress", "15")
+        row_count = len(df)
+        print(f"--- [CLOUD] DADOS LIDOS: {row_count} LINHAS ENCONTRADAS. ---")
+
+        # 3. Clean and Batch Insert into STAGING
+        if wipe:
+            bg_db.execute(text("TRUNCATE TABLE staging_loads RESTART IDENTITY CASCADE"))
+            bg_db.execute(text("DELETE FROM loads"))
+            bg_db.execute(text("DELETE FROM error_ledger"))
+            bg_db.commit()
+        
+        # --- SMART HEADER DISCOVERY ---
+        header_row_idx = -1
+        keywords = ['PLACA', 'IDENTIFICADOR', 'PRODUTO', 'PESO', 'DOC', 'DISTRITO']
+        
+        current_cols = [str(c).upper() for c in df.columns]
+        if any(any(k in c for k in keywords) for c in current_cols):
+            header_row_idx = -2
+            print("--- [CLOUD] CABEÇALHO DETECTADO NA LINHA 0. ---")
+        else:
+            for i in range(min(20, len(df))):
+                row_values = [str(v).upper() for v in df.iloc[i].values if v is not None]
+                if any(any(k in v for k in keywords) for v in row_values):
+                    header_row_idx = i
+                    print(f"--- [CLOUD] CABEÇALHO ENCONTRADO NA LINHA {i+1}. ---")
+                    break
+        
+        if header_row_idx >= 0:
+            new_cols = df.iloc[header_row_idx].values
+            df = df.iloc[header_row_idx + 1:].copy()
+            df.columns = new_cols
+            
+        df.columns = [str(c).upper().strip() for c in df.columns]
+        print(f"--- [CLOUD] COLUNAS DISPONÍVEIS: {list(df.columns)}")
+        
+        # Robust Column Mapping
+        mapping = {
+            'visit_code': next((c for c in df.columns if 'CÓDIGO VISITA' in c), None),
+            'truck_plate': next((c for c in df.columns if 'PLACA' in c), None),
+            'product': next((c for c in df.columns if 'PRODUTOR' in c), None),
+            'load_identifier': next((c for c in df.columns if 'ID' == c or 'IDENTIFICADOR' in c), None),
+            'doc_number': next((c for c in df.columns if 'NÚMERO DOCUMENTO' in c), None) or next((c for c in df.columns if 'DOC' in c and 'TIPO' not in c), None),
+            'weight_gross': next((c for c in df.columns if 'PESO LÍQUIDO (KG)' in c), None),
+            'weight_net': next((c for c in df.columns if 'PESO LÍQUIDO C/ DESCONTO' in c), None),
+            'load_time': next((c for c in df.columns if 'HORÁRIO' in c or 'HORA' in c), None),
+            'district': next((c for c in df.columns if 'DISTRITO FILIAL' in c), None),
+            'rateio': next((c for c in df.columns if 'RATEIO' in c), None),
+            'technology': next((c for c in df.columns if 'RESULTADO' in c and 'TESTE' in c), None) or next((c for c in df.columns if 'TECNOLOGIA' in c), None),
         }
         
+        print("--- [CLOUD] MAPEAMENTO DE COLUNAS: ---")
+        for k, v in mapping.items():
+            print(f"  {k}: {v}")
+            
+        rename_map = {v: k for k, v in mapping.items() if v is not None}
+        if not rename_map:
+            raise Exception("Nenhuma coluna mapeada! Verifique os cabeçalhos.")
+            
+        # Normalization
+        temp_df = df[list(rename_map.keys())].rename(columns=rename_map)
+        for col in ['visit_code', 'truck_plate', 'product', 'load_identifier', 'doc_number', 'district', 'rateio', 'technology']:
+            if col not in temp_df.columns: temp_df[col] = 'N/A'
+            else: temp_df[col] = temp_df[col].astype(str).fillna('N/A')
+            
+        # Specific Normalization: Strip hyphens from plates
+        temp_df['truck_plate'] = temp_df['truck_plate'].str.replace('-', '', regex=False)
+            
+        if 'load_time' not in temp_df.columns: temp_df['load_time'] = '00:00'
+        else: temp_df['load_time'] = temp_df['load_time'].astype(str).fillna('00:00')
+
+        for col in ['weight_gross', 'weight_net']:
+            if col not in temp_df.columns: temp_df[col] = '0'
+            else:
+                temp_df[col] = temp_df[col].astype(str).str.replace(r'[^0-9,.]', '', regex=True)
+                temp_df[col] = temp_df[col].replace(['', 'N/A', 'nan'], '0').fillna('0')
+
+        # Limpeza de quebras de linha e tabs que corrompem o comando COPY do Postgres
+        for col in temp_df.columns:
+            if temp_df[col].dtype == 'object':
+                temp_df[col] = temp_df[col].astype(str).str.replace(r'[\n\r\t]', ' ', regex=True).str.strip()
+
+        total_rows = len(temp_df)
+        temp_df['upload_id'] = upload_uuid
+        print(f"--- [CLOUD] NORMALIZADO: {total_rows} LINHAS. INICIANDO CARGA VIA COPY... ---")
+        
+        # 4. Use PostgreSQL COPY command for massive performance
+        output = io.StringIO()
+        # Ensure column order matches staging_loads table
+        copy_cols = ['upload_id', 'visit_code', 'truck_plate', 'product', 'load_identifier', 'doc_number', 'weight_gross', 'weight_net', 'load_time', 'district', 'rateio', 'technology']
+        temp_df[copy_cols].to_csv(output, sep='\t', header=False, index=False)
+        output.seek(0)
+        
+        # Update progress BEFORE getting raw connection to avoid transaction lock
+        set_cfg(bg_db, "processing_progress", "40")
+        
+        try:
+            print("--- [CLOUD] ENVIANDO DADOS AO BANCO (COPY)... ---")
+            # Get raw connection directly from engine for COPY
+            raw_conn = engine.raw_connection()
+            try:
+                with raw_conn.cursor() as cursor:
+                    cursor.copy_from(output, 'staging_loads', columns=copy_cols)
+                raw_conn.commit()
+                print(f"--- [CLOUD] CARGA CONCLUÍDA: {total_rows} LINHAS. ---")
+            finally:
+                raw_conn.close()
+                
+            set_cfg(bg_db, "processing_progress", "85")
+            
+        except Exception as copy_err:
+            print(f"--- [CLOUD] ERRO NO COMANDO COPY: {copy_err} ---")
+            bg_db.rollback()
+            # Fallback to batched inserts if COPY fails (though it shouldn't)
+            print("--- [CLOUD] TENTANDO FALLBACK PARA INSERT EM LOTES... ---")
+            BATCH_SIZE = 1000
+            for i in range(0, total_rows, BATCH_SIZE):
+                batch_df = temp_df.iloc[i : i + BATCH_SIZE]
+                batch_data = batch_df.to_dict('records')
+                
+                stmt = text("""
+                    INSERT INTO staging_loads 
+                    (upload_id, visit_code, truck_plate, product, load_identifier, doc_number, weight_gross, weight_net, load_time, district, rateio) 
+                    VALUES 
+                    (:upload_id, :visit_code, :truck_plate, :product, :load_identifier, :doc_number, :weight_gross, :weight_net, :load_time, :district, :rateio)
+                """)
+                
+                params = []
+                for row in batch_data:
+                    params.append({**row, "upload_id": upload_uuid})
+
+                try:
+                    bg_db.execute(stmt, params)
+                    bg_db.commit()
+                    progress = 20 + int(((i + len(batch_df)) / total_rows) * 60)
+                    set_cfg(bg_db, "processing_progress", str(progress))
+                    print(f"--- [CLOUD] PROGRESSO (FALLBACK): {i + len(batch_df)}/{total_rows} ---")
+                except Exception as b_err:
+                    print(f"--- [CLOUD] FALHA CRÍTICA NO FALLBACK: {b_err} ---")
+                    break
+
+        print(f"--- [CLOUD] CARGA COMPLETA. INICIANDO SQL ... ---")
+        set_cfg(bg_db, "processing_progress", "90")
+        bg_db.execute(text("SELECT validate_and_migrate_loads(:uid)"), {"uid": upload_uuid})
+        bg_db.commit()
+
+        set_cfg(bg_db, "processing_progress", "100")
+        set_cfg(bg_db, "is_processing", "false")
+        bg_db.commit()
+        print(f"--- [CLOUD] CONCLUÍDO: {upload_uuid} ---")
     except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        print(f"UPLOAD FATAL ERROR:\n{tb}")
-        # Return full traceback in detail for surgical debugging
-        raise HTTPException(status_code=500, detail=f"ERRO TÉCNICO: {str(e)}\n\n{tb[:500]}...")
+        print(f"ERRO CLOUD: {e}")
+        try:
+            bg_db.rollback()
+            set_cfg(bg_db, "is_processing", "false")
+            set_cfg(bg_db, "last_validation_error", str(e))
+            bg_db.commit()
+        except: pass
+    finally:
+        bg_db.close()
+
+@app.post("/upload")
+def upload_file_legacy():
+    # Note: In the new cloud flow, this endpoint is legacy.
+    # But we keep it functional for small files.
+    # To handle 700k, use /upload/supabase (triggered by frontend)
+    return {
+        "status": "deprecated",
+        "message": "Use o novo fluxo Supabase para arquivos grandes."
+    }
 @app.post("/loads/register/import")
 async def import_registered_loads(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.endswith(('.xlsx', '.csv')):
@@ -833,3 +1069,7 @@ async def import_registered_loads(file: UploadFile = File(...), db: Session = De
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Erro no import: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)

@@ -1,0 +1,8 @@
+CONTAINER ID   NAME               CPU %     MEM USAGE / LIMIT     MEM %     NET I/O           BLOCK I/O         PIDS
+dd982f4f5198   harvest_frontend   0.00%     49.12MiB / 31.24GiB   0.15%     16.6MB / 10.7MB   0B / 0B           11
+72ac456f7844   harvest_backend    0.63%     78.73MiB / 31.24GiB   0.25%     10.6MB / 157kB    0B / 11.9MB       17
+bc6eab503206   harvest_db         0.09%     33.44MiB / 31.24GiB   0.10%     501kB / 231kB     5.96MB / 65.7MB   7
+554976d14328   pentagi            0.00%     33.91MiB / 31.24GiB   0.11%     584kB / 3.21MB    61.4kB / 262kB    16
+9d2fd6d77d16   pgexporter         0.00%     2.371MiB / 31.24GiB   0.01%     91.6kB / 126B     0B / 0B           5
+bb26b1f33df5   scraper            0.64%     263.6MiB / 31.24GiB   0.82%     91.9kB / 126B     823kB / 246kB     31
+ac8433e7b60e   pgvector           0.00%     21.45MiB / 31.24GiB   0.07%     171kB / 119kB     336kB / 877kB     6

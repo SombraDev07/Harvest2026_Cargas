@@ -1,0 +1,15 @@
+▲ Next.js 16.1.6
+- Local:         http://localhost:3000
+- Network:       http://0.0.0.0:3000
+
+✓ Starting...
+✓ Ready in 45ms
+Request body exceeded 10MB for /api/upload?wipe=true. Only the first 10MB will be available unless configured. See https://nextjs.org/docs/app/api-reference/config/next-config-js/middlewareClientMaxBodySize for more details.
+Failed to proxy http://backend:8000/upload?wipe=true Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+Error: socket hang up
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}

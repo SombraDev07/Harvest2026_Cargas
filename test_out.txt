@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/home/andromeda/Documentos/Harvest2026_Cargas/test_excel.py", line 1, in <module>
+    import pandas as pd
+ModuleNotFoundError: No module named 'pandas'

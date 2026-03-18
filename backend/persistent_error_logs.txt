@@ -1,0 +1,53 @@
+--- [MIGRATION] Checking for missing columns in 'loads' table ---
+--- [MIGRATION] Column is_urgent ensured ---
+--- [MIGRATION] Column arrival_at ensured ---
+--- [MIGRATION] Column updated_at ensured ---
+--- [MIGRATION] Table system_config ensured ---
+--- [SEED] Admin BrunoHarvest2026@BureauVeritas.com password updated/verified ---
+INFO:     172.21.0.4:45288 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:33624 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:53260 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:33226 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:33240 - "GET /config HTTP/1.1" 200 OK
+INFO:     172.21.0.4:33256 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:33270 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:33284 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:51360 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:51374 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:51388 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:54946 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:54948 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:54964 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:40392 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:40408 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:40422 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:57588 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:57596 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:57600 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:57602 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:46888 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:46894 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:46902 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:43318 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:43320 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:43328 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:47680 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:47688 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:41124 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:41126 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:41134 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:57006 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:57012 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:57028 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:39818 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:39820 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:39822 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:39838 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:34760 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:34770 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:34772 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:40094 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:40102 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:40114 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:48982 - "GET /system/status HTTP/1.1" 200 OK
+INFO:     172.21.0.4:48984 - "GET /system/status HTTP/1.1" 200 OK
