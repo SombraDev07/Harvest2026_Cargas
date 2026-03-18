@@ -311,9 +311,10 @@ def get_loads(
     
     final_loads = []
     for item in results:
-        if hasattr(item, '_mapping'):
+        # SQLAlchemy 2.0 can return Row objects that act like tuples
+        if isinstance(item, tuple) or type(item).__name__ == 'Row':
             load_obj = item[0]
-            load_obj.error_message = item._mapping.get('ledger_message')
+            load_obj.error_message = item[1] if len(item) > 1 else None
             final_loads.append(load_obj)
         else:
             final_loads.append(item)
