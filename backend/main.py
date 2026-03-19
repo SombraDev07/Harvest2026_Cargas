@@ -9,8 +9,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 def br_now():
-    """Returns the current time in BRT (UTC-3)."""
-    return datetime.utcnow() - timedelta(hours=3)
+    """Returns the current time in BRT (UTC-3), forcing it from UTC."""
+    from datetime import timezone, timedelta
+    return datetime.now(timezone.utc) - timedelta(hours=3)
 
 # Add Base User Model for Supabase linking if needed
 import pandas as pd
@@ -430,8 +431,10 @@ def delete_registered_load(load_id: int, db: Session = Depends(get_db)):
 @app.get("/districts")
 def get_all_districts(db: Session = Depends(get_db)):
     """Returns a list of all distinct districts in the database."""
-    d_list = [r[0] for r in db.query(models.Load.district).distinct().filter(models.Load.district.isnot(None), models.Load.district != "").all()]
-    return {"districts": sorted(d_list)}
+    # Query distinct and strip/upper to handle variations
+    results = db.query(models.Load.district).filter(models.Load.district.isnot(None)).distinct().all()
+    d_list = sorted(list(set(str(r[0]).strip() for r in results if r[0] and str(r[0]).strip() != "")))
+    return {"districts": d_list}
 
 @app.post("/loads/register-memory")
 def register_historical_ids(file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -534,27 +537,15 @@ def reset_system(db: Session = Depends(get_db)):
     return {"message": "Sistema reiniciado com sucesso!"}
 
 @app.get("/analytics", response_model=schemas.AnalyticsSummary)
-def get_analytics(db: Session = Depends(get_db), status: Optional[str] = None):
+def get_analytics(db: Session = Depends(get_db)):
     total = db.query(models.Load).count()
     # Source of Truth for Status
-    # Base Query
-    filtered_query = db.query(models.Load)
-    
-    if status:
-        filtered_query = filtered_query.filter(models.Load.status == status)
-    else:
-        # Default behavior for main analysis: show only pending/error
-        filtered_query = filtered_query.filter(models.Load.status.in_(["pending", "error"]))
-    
-    validated = filtered_query.filter(models.Load.status == "validated").count()
-    pending = filtered_query.filter(models.Load.status == "pending").count()
+    validated = db.query(models.Load).filter(models.Load.status == "validated").count()
+    pending = db.query(models.Load).filter(models.Load.status == "pending").count()
     operation_count = db.query(models.OperationLog.load_identifier).distinct().count()
     
     # Source of Truth for Errors (Distinct Loads that have at least one error in Ledger)
-    # This count should reflect errors within the filtered set of loads
-    error_loads_count = db.query(models.ErrorLedger.load_identifier)\
-        .join(filtered_query.subquery(), models.ErrorLedger.load_identifier == models.Load.load_identifier)\
-        .distinct().count()
+    error_loads_count = db.query(models.ErrorLedger.load_identifier).distinct().count()
     
     # Pending in last 72h count
     threshold_72h = br_now() - timedelta(hours=72)
@@ -583,7 +574,8 @@ def get_analytics(db: Session = Depends(get_db), status: Optional[str] = None):
         "peso_duplicado": 0,
         "rateio_mesmo_pdr": 0,
         "padrao": 0,
-        "duplicidade_cod": 0
+        "duplicidade_cod": 0,
+        "validated": validated
     }
     
     for etype, count in rule_counts_raw:

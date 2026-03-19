@@ -82,6 +82,7 @@ export default function SpreadsheetPage() {
     // Poll status every 3 seconds to catch the background validation progress
     const interval = setInterval(() => {
       fetchStatus();
+      fetchDistricts(); // Periodically refresh districts list
     }, 3000);
     return () => clearInterval(interval);
   }, []);
@@ -130,6 +131,7 @@ export default function SpreadsheetPage() {
     setIsUploading(true);
     setUploadResult(null);
     setSelectedDistrict("");
+    await fetchDistricts(); // Refresh list after upload starts
 
     try {
       // 1. UPLOAD DIRECT TO SUPABASE STORAGE
