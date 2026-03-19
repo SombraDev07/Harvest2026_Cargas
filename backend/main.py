@@ -5,7 +5,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List
+
+def br_now():
+    """Returns the current time in BRT (UTC-3)."""
+    return datetime.utcnow() - timedelta(hours=3)
+
+# Add Base User Model for Supabase linking if needed
 import pandas as pd
 import io
 import os
@@ -45,6 +52,8 @@ async def lifespan(app: FastAPI):
             print("--- [MIGRATION] Column is_urgent ensured ---")
             conn.execute(text("ALTER TABLE loads ADD COLUMN IF NOT EXISTS arrival_at TIMESTAMP"))
             print("--- [MIGRATION] Column arrival_at ensured ---")
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR"))
+            print("--- [MIGRATION] Column name in users ensured ---")
             conn.execute(text("ALTER TABLE loads ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
             print("--- [MIGRATION] Column updated_at ensured ---")
             
@@ -122,6 +131,7 @@ def login(req: schemas.LoginRequest, db: Session = Depends(get_db)):
     return schemas.LoginResponse(
         id=user.id,
         username=user.username,
+        name=user.name or user.username,
         role=user.role,
         token="SIMULATED-JWT-TOKEN"
     )
@@ -285,7 +295,7 @@ def get_loads(
     query = query.filter(~models.Load.load_identifier.in_(resolved_ids_subquery))
 
     # Queue Filtering (72h logic)
-    threshold_72h = datetime.now() - timedelta(hours=72)
+    threshold_72h = br_now() - timedelta(hours=72)
 
     if queue == "urgent":
         # must be marked urgent AND arrived less than 72h ago
@@ -417,6 +427,12 @@ def delete_registered_load(load_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Success"}
 
+@app.get("/districts")
+def get_all_districts(db: Session = Depends(get_db)):
+    """Returns a list of all distinct districts in the database."""
+    d_list = [r[0] for r in db.query(models.Load.district).distinct().filter(models.Load.district.isnot(None), models.Load.district != "").all()]
+    return {"districts": sorted(d_list)}
+
 @app.post("/loads/register-memory")
 def register_historical_ids(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Registers all IDs from a spreadsheet as 'Known' (Memory). These will NOT be urgent on future uploads."""
@@ -449,7 +465,7 @@ def register_historical_ids(file: UploadFile = File(...), db: Session = Depends(
         
         count = 0
         from datetime import datetime
-        now = datetime.now()
+        now = br_now()
         
         chunk_size = 5000
         for i in range(0, len(ids), chunk_size):
@@ -518,18 +534,30 @@ def reset_system(db: Session = Depends(get_db)):
     return {"message": "Sistema reiniciado com sucesso!"}
 
 @app.get("/analytics", response_model=schemas.AnalyticsSummary)
-def get_analytics(db: Session = Depends(get_db)):
+def get_analytics(db: Session = Depends(get_db), status: Optional[str] = None):
     total = db.query(models.Load).count()
     # Source of Truth for Status
-    validated = db.query(models.Load).filter(models.Load.status == "validated").count()
-    pending = db.query(models.Load).filter(models.Load.status == "pending").count()
+    # Base Query
+    filtered_query = db.query(models.Load)
+    
+    if status:
+        filtered_query = filtered_query.filter(models.Load.status == status)
+    else:
+        # Default behavior for main analysis: show only pending/error
+        filtered_query = filtered_query.filter(models.Load.status.in_(["pending", "error"]))
+    
+    validated = filtered_query.filter(models.Load.status == "validated").count()
+    pending = filtered_query.filter(models.Load.status == "pending").count()
     operation_count = db.query(models.OperationLog.load_identifier).distinct().count()
     
     # Source of Truth for Errors (Distinct Loads that have at least one error in Ledger)
-    error_loads_count = db.query(models.ErrorLedger.load_identifier).distinct().count()
+    # This count should reflect errors within the filtered set of loads
+    error_loads_count = db.query(models.ErrorLedger.load_identifier)\
+        .join(filtered_query.subquery(), models.ErrorLedger.load_identifier == models.Load.load_identifier)\
+        .distinct().count()
     
     # Pending in last 72h count
-    threshold_72h = datetime.now() - timedelta(hours=72)
+    threshold_72h = br_now() - timedelta(hours=72)
     pending_72h = db.query(models.Load).filter(
         models.Load.status == "pending",
         models.Load.arrival_at < threshold_72h
@@ -612,7 +640,7 @@ def get_analytics(db: Session = Depends(get_db)):
 @app.get("/analytics/fast-track")
 def get_fast_track_analytics(db: Session = Depends(get_db)):
     from datetime import datetime, timedelta
-    threshold = datetime.now() - timedelta(hours=72)
+    threshold = br_now() - timedelta(hours=72)
     
     # Filter only loads marked as URGENT and arrived in the last 72h
     recent_loads_query = db.query(models.Load.load_identifier).filter(
@@ -818,6 +846,13 @@ async def upload_file(
         print(f"--- [UPLOAD] Error: Invalid file format {file.filename} ---")
         raise HTTPException(status_code=400, detail="Invalid file format")
     
+    # Set processing status
+    set_cfg(db, "is_processing", "true")
+    set_cfg(db, "active_filename", file.filename)
+    set_cfg(db, "last_upload_at", br_now().strftime("%d/%m/%Y %H:%M:%S"))
+    set_cfg(db, "processing_progress", "0")
+    db.commit() # Commit these changes immediately so UI can reflect them
+    
     # Helpers for data conversion
     def to_float(val):
         if isinstance(val, pd.Series): val = val.iloc[0] if not val.empty else 0.0
@@ -889,8 +924,8 @@ async def upload_file(
             col_rateio = find_robust(["RATEIO"], 31)
 
             total_rows = len(df)
-            from datetime import datetime
-            now = datetime.now()
+            from datetime import timedelta
+            now = br_now()
 
             batch_size = 500
             for i in range(0, total_rows, batch_size):

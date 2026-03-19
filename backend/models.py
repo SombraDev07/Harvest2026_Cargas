@@ -77,6 +77,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
+    name = Column(String) # For display/tracking
     password_hash = Column(String)
     role = Column(String, default="user") # 'admin' for BrunoHarvest2026
 

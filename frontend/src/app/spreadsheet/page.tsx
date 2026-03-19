@@ -40,6 +40,7 @@ export default function SpreadsheetPage() {
   const [memoryMessage, setMemoryMessage] = useState("");
   const [systemConfig, setSystemConfig] = useState<any>({});
   const [systemStatus, setSystemStatus] = useState<any>({});
+  const [districts, setDistricts] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const memoryInputRef = useRef<HTMLInputElement>(null);
 
@@ -61,10 +62,20 @@ export default function SpreadsheetPage() {
     }
   };
 
+  const fetchDistricts = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/districts`);
+      setDistricts(res.data.districts || []);
+    } catch (e) {
+      console.error("Failed to fetch districts", e);
+    }
+  };
+
   useEffect(() => {
     const init = async () => {
       await fetchConfig();
       await fetchStatus();
+      await fetchDistricts();
     };
     init();
 
@@ -361,9 +372,9 @@ export default function SpreadsheetPage() {
                         onChange={(e) => setSelectedDistrict(e.target.value)}
                       >
                         <option value="">
-                          {uploadResult.status === "background_started" ? "Aguardando processamento..." : `Todos os Distritos (${uploadResult.districts?.length || 0})`}
+                          {systemStatus.is_processing ? "Aguardando processamento..." : `Todos os Distritos (${districts.length})`}
                         </option>
-                        {uploadResult.districts?.map(d => (
+                        {districts.map(d => (
                           <option key={d} value={d}>{d}</option>
                         ))}
                       </select>

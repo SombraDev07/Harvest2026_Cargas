@@ -91,5 +91,6 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     id: int
     username: str
+    name: Optional[str] = None
     role: str
     token: str # Simulated token for now

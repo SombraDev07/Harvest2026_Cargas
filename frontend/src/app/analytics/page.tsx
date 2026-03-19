@@ -38,6 +38,7 @@ const RULES = [
   { id: 12, name: "Pesos Duplicados (Mesma Visita)", filter: "Peso duplicado", icon: "👯", color: "text-emerald-400", statsKey: "peso_duplicado", description: "Detecta cargas onde o PAR de pesos (Líquido e Líquido com Desconto) se repete na mesma visita, independentemente de ser rateio ou não." },
   { id: 13, name: "Rateio: Mesmo Produtor", filter: "Rateio mesma conta", icon: "👤", color: "text-violet-400", statsKey: "rateio_mesmo_pdr", description: "Detecta grupos de rateio onde o produtor é o mesmo para todas as cargas, o que é um uso incorreto." },
   { id: 14, name: "Duplicidade COD/COD", filter: "Duplicidade Visita", icon: "🔄", color: "text-orange-500", statsKey: "duplicidade_cod", description: "Detecta cargas com o mesmo Romaneio e Pesos (PL e PLCD) que foram registradas em códigos de visita DIFERENTES." },
+  { id: 15, name: "Cargas em Conformidade", filter: "validated", icon: "✅", color: "text-emerald-400", statsKey: "validated", description: "Lista todas as cargas que passaram por todas as validações sem erros detectados." },
 ];
 
 function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[0], totalCount?: number, selectedDistrict: string }) {
@@ -65,8 +66,8 @@ function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[
       try {
         const res = await axios.get(`${API_BASE_URL}/loads`, {
           params: {
-            status: 'error',
-            error_type: rule.statsKey,
+            status: rule.filter === 'validated' ? 'validated' : 'error',
+            error_type: rule.filter === 'validated' ? undefined : rule.statsKey,
             district: selectedDistrict !== 'GERAL' ? selectedDistrict : undefined,
             limit: 200 // Reduced from 20000 to save data/CPU
           }
@@ -126,7 +127,15 @@ function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[
         load_identifier: item.load_identifier,
         error_type: rule.statsKey,
         column_name: rule.name,
-        user_name: localStorage.getItem("harvest_user_name") || "Sistema",
+        user_name: (() => {
+          const userJson = localStorage.getItem("user");
+          if (userJson) {
+            try {
+              return JSON.parse(userJson).name || "Sistema";
+            } catch (e) { return "Sistema"; }
+          }
+          return localStorage.getItem("harvest_user_name") || "Sistema";
+        })(),
         reason: reason
       });
       alert("ID registrado com sucesso! Refaça a auditoria para que ele suma desta lista.");
