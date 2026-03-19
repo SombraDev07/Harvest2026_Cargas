@@ -203,7 +203,7 @@ BEGIN
     SELECT 
         b.load_identifier, b.plate_clean, b.product, b.district, b.visit_code, b.doc_number, b.rateio, b.technology, 
         substring(load_time_raw for 5), b.wg, b.wn,
-        CASE WHEN EXISTS (SELECT 1 FROM error_ledger e WHERE e.load_identifier = b.load_identifier) THEN 'error' ELSE 'valid' END
+        CASE WHEN EXISTS (SELECT 1 FROM error_ledger e WHERE e.load_identifier = b.load_identifier) THEN 'error' ELSE 'validated' END
     FROM base_data_tmp b
     ON CONFLICT (load_identifier) DO UPDATE SET
         truck_plate = EXCLUDED.truck_plate, product = EXCLUDED.product, district = EXCLUDED.district,
@@ -213,7 +213,7 @@ BEGIN
 
     -- 7. RETURN STATS (Explicit Integer Cast to fix DatatypeMismatch)
     RETURN QUERY SELECT 
-        (SELECT COUNT(*)::INTEGER FROM base_data_tmp bd JOIN loads l ON l.load_identifier = bd.load_identifier WHERE l.status = 'valid'),
+        (SELECT COUNT(*)::INTEGER FROM base_data_tmp bd JOIN loads l ON l.load_identifier = bd.load_identifier WHERE l.status = 'validated'),
         (SELECT COUNT(DISTINCT load_identifier)::INTEGER FROM error_ledger WHERE occurred_at = v_now);
 END;
 $$ LANGUAGE plpgsql;

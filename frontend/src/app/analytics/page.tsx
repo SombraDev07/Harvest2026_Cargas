@@ -37,8 +37,7 @@ const RULES = [
   { id: 11, name: "Possível Rateio (Aviso 20min)", filter: "Possível Rateio", icon: "🔔", color: "text-sky-400", statsKey: "rateio_possivel", description: "Alerta para cargas de mesma placa/tech pesadas com menos de 20min de intervalo, mas sem marcação de rateio." },
   { id: 12, name: "Pesos Duplicados (Mesma Visita)", filter: "Peso duplicado", icon: "👯", color: "text-emerald-400", statsKey: "peso_duplicado", description: "Detecta cargas onde o PAR de pesos (Líquido e Líquido com Desconto) se repete na mesma visita, independentemente de ser rateio ou não." },
   { id: 13, name: "Rateio: Mesmo Produtor", filter: "Rateio mesma conta", icon: "👤", color: "text-violet-400", statsKey: "rateio_mesmo_pdr", description: "Detecta grupos de rateio onde o produtor é o mesmo para todas as cargas, o que é um uso incorreto." },
-  { id: 14, name: "Duplicidade COD/COD", filter: "Duplicidade Visita", icon: "🔄", color: "text-orange-500", statsKey: "duplicidade_cod", description: "Detecta cargas com o mesmo Romaneio e Pesos (PL e PLCD) que foram registradas em códigos de visita DIFERENTES." },
-  { id: 15, name: "Cargas em Conformidade", filter: "validated", icon: "✅", color: "text-emerald-400", statsKey: "validated", description: "Lista todas as cargas que passaram por todas as validações sem erros detectados." },
+  { id: 14, name: "Duplicidade COD/COD", filter: "Duplicidade Visita", icon: "🔄", color: "text-orange-500", statsKey: "duplicidade_cod", description: "Detecta cargas com o mesmo Romaneio e Pesos (PL e PLCD) que foram registradas em códigos de visita DIFERENTES." }
 ];
 
 function RuleTable({ rule, totalCount, selectedDistrict }: { rule: typeof RULES[0], totalCount?: number, selectedDistrict: string }) {
