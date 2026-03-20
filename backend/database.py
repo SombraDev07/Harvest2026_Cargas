@@ -5,15 +5,17 @@ import os
 
 # Connection to Supabase
 # Using Direct Connection for stability during testing
-DEFAULT_DB = "postgresql://postgres:Azdomal123***@db.dipbhkolyebdbrvjrjdwu.supabase.co:5432/postgres?sslmode=require"
+# Connection to Supabase Pooled (Transaction Mode)
+DEFAULT_DB = "postgresql://postgres.dipbhkolyebdbrvjrjdwu:Azdomal123***@aws-0-sa-east-1.pooler.supabase.co:6543/postgres?sslmode=require"
 DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DB)
 
 # Standard Postgres engine with pooling
 engine = create_engine(
     DATABASE_URL, 
-    pool_size=10, 
-    max_overflow=20,
-    pool_pre_ping=True
+    pool_size=5, 
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=300
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
