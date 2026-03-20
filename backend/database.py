@@ -1,22 +1,18 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 import os
 
-# Connection to Supabase
-# Using Direct Connection for stability during testing
 # Connection to Supabase Pooled (Transaction Mode)
 # Note: Host suffix for pooler is .com, while direct is .co
 DEFAULT_DB = "postgresql://postgres.dipbhkolyebdbrvjrjdwu:Azdomal123***@aws-0-sa-east-1.pooler.supabase.com:6543/postgres?sslmode=require"
 DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DB)
 
-# Standard Postgres engine with pooling
+# Use NullPool when connecting to a server-side pooler like Supabase Transaction Pooler
 engine = create_engine(
     DATABASE_URL, 
-    pool_size=5, 
-    max_overflow=10,
-    pool_pre_ping=True,
-    pool_recycle=300,
+    poolclass=NullPool,
     connect_args={
         "keepalives": 1,
         "keepalives_idle": 30,
