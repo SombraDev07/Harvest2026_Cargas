@@ -5,7 +5,7 @@ import os
 
 # Connection to Supabase
 # Using Direct Connection for stability during testing
-DEFAULT_DB = "postgresql://postgres:Azdomal123***@db.dipbhkolyebdbvrjedwu.supabase.co:5432/postgres"
+DEFAULT_DB = "postgresql://postgres:Azdomal123***@db.dipbhkolyebdbrvjrjdwu.supabase.co:5432/postgres?sslmode=require"
 DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DB)
 
 # Standard Postgres engine with pooling

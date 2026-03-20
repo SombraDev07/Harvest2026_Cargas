@@ -23,6 +23,11 @@ import requests
 import models, schemas, database, validation
 from database import engine, get_db, SessionLocal
 from rules.utils import normalize_str
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("harvest_api")
 
 # Create tables
 models.Base.metadata.create_all(bind=engine)
@@ -125,17 +130,28 @@ def reset_system_status(db: Session = Depends(get_db)):
 
 @app.post("/login", response_model=schemas.LoginResponse)
 def login(req: schemas.LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.username == req.username).first()
-    if not user or user.password_hash != req.password:
-        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
-    
-    return schemas.LoginResponse(
-        id=user.id,
-        username=user.username,
-        name=user.name or user.username,
-        role=user.role,
-        token="SIMULATED-JWT-TOKEN"
-    )
+    logger.info(f"Tentativa de login para usuário: {req.username}")
+    try:
+        user = db.query(models.User).filter(models.User.username == req.username).first()
+        if not user:
+            logger.warning(f"Usuário não encontrado: {req.username}")
+            raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
+            
+        if user.password_hash != req.password:
+            logger.warning(f"Senha incorreta para usuário: {req.username}")
+            raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
+        
+        logger.info(f"Login bem-sucedido: {req.username}")
+        return schemas.LoginResponse(
+            id=user.id,
+            username=user.username,
+            name=user.name or user.username,
+            role=user.role,
+            token="SIMULATED-JWT-TOKEN"
+        )
+    except Exception as e:
+        logger.error(f"Erro no login para {req.username}: {e}")
+        raise HTTPException(status_code=500, detail="Erro interno ao processar login")
 
 @app.get("/loads/export-all")
 def export_all_xlsx(district: str = None, db: Session = Depends(get_db)):
@@ -294,6 +310,12 @@ def get_loads(
         resolved_ids_subquery = resolved_ids_subquery.filter(models.RegisteredLoad.error_type == error_type)
     
     query = query.filter(~models.Load.load_identifier.in_(resolved_ids_subquery))
+
+    if status:
+        if status == "validated":
+            query = query.filter(models.Load.status.in_(["validated", "valid"]))
+        else:
+            query = query.filter(models.Load.status == status)
 
     # Queue Filtering (72h logic)
     threshold_72h = br_now() - timedelta(hours=72)
@@ -540,7 +562,7 @@ def reset_system(db: Session = Depends(get_db)):
 def get_analytics(db: Session = Depends(get_db)):
     total = db.query(models.Load).count()
     # Source of Truth for Status
-    validated = db.query(models.Load).filter(models.Load.status == "validated").count()
+    validated = db.query(models.Load).filter(models.Load.status.in_(["validated", "valid"])).count()
     pending = db.query(models.Load).filter(models.Load.status == "pending").count()
     operation_count = db.query(models.OperationLog.load_identifier).distinct().count()
     
